@@ -10,7 +10,6 @@ $mensagem = '';
 $tipo_mensagem = ''; // 'success' ou 'error'
 $pregao = null;
 $itens_agrupados = [];
-$observacoes = [];
 $pregoes_disponiveis = [];
 $lista_vinculados = [];
 
@@ -22,10 +21,10 @@ try {
     $pdo = $db->connect();
 
     // ---------------------------------------------------------
-    // AUTO-CONFIGURAÇÃO: Criação das tabelas necessárias
+    // AUTO-CONFIGURAÇÃO E MIGRAÇÃO DE COLUNAS
     // ---------------------------------------------------------
     
-    // Tabela de Vínculos (Consignados)
+    // 1. Tabela de Vínculos (Consignados)
     $pdo->exec("CREATE TABLE IF NOT EXISTS consignados (
         id INT AUTO_INCREMENT PRIMARY KEY,
         pregao_id INT NOT NULL,
@@ -35,7 +34,7 @@ try {
         FOREIGN KEY (pregao_id) REFERENCES pregoes(id) ON DELETE CASCADE
     )");
 
-    // Tabela de Produtos de Consignação (Solicitação do Print 1)
+    // 2. Tabela de Produtos de Consignação
     $pdo->exec("CREATE TABLE IF NOT EXISTS produtos_consignacao (
         id INT AUTO_INCREMENT PRIMARY KEY,
         referencia VARCHAR(50),
@@ -44,11 +43,63 @@ try {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
+    // 3. Adicionar colunas novas na tabela itens_pregoes se não existirem
+    $colunas_novas = [
+        'codigo_catmat' => 'VARCHAR(50)',
+        'qtd_entregue' => 'INT DEFAULT 0',
+        'saldo_hospital' => 'INT DEFAULT 0',
+        'qtd_faturada' => 'INT DEFAULT 0',
+        'cons_a_faturar' => 'INT DEFAULT 0',
+        'observacao_item' => 'TEXT'
+    ];
+
+    foreach ($colunas_novas as $coluna => $tipo) {
+        try {
+            $pdo->query("SELECT $coluna FROM itens_pregoes LIMIT 1");
+        } catch (Exception $e) {
+            $pdo->exec("ALTER TABLE itens_pregoes ADD COLUMN $coluna $tipo");
+        }
+    }
+
     // ---------------------------------------------------------
     // 1. PROCESSAMENTO DE FORMULÁRIOS (POST)
     // ---------------------------------------------------------
 
-    // Ação: CADASTRAR PRODUTO (Novo)
+    // Ação: ATUALIZAR INFORMAÇÕES DO ITEM (Via Modal Mais Info)
+    if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['atualizar_item_consignado'])) {
+        $item_id = filter_var($_POST['item_id'], FILTER_VALIDATE_INT);
+        $catmat = $_POST['codigo_catmat'] ?? '';
+        $q_entregue = intval($_POST['qtd_entregue']);
+        $s_hospital = intval($_POST['saldo_hospital']);
+        $q_faturada = intval($_POST['qtd_faturada']);
+        $c_a_faturar = intval($_POST['cons_a_faturar']);
+        $obs_item = $_POST['observacao_item'] ?? '';
+
+        if ($item_id) {
+            try {
+                $sql_update_item = "UPDATE itens_pregoes SET 
+                                    codigo_catmat = ?, 
+                                    qtd_entregue = ?, 
+                                    saldo_hospital = ?, 
+                                    qtd_faturada = ?, 
+                                    cons_a_faturar = ?, 
+                                    observacao_item = ? 
+                                    WHERE id = ?";
+                $stmt_upd = $pdo->prepare($sql_update_item);
+                $stmt_upd->execute([$catmat, $q_entregue, $s_hospital, $q_faturada, $c_a_faturar, $obs_item, $item_id]);
+                
+                $mensagem = "Informações do item atualizadas com sucesso!";
+                $tipo_mensagem = 'success';
+                // Mantém o ID do pregão para recarregar a página corretamente
+                $pregao_id = $_POST['pregao_id_redirect'] ?? $pregao_id;
+            } catch (Exception $e) {
+                $mensagem = "Erro ao atualizar item: " . $e->getMessage();
+                $tipo_mensagem = 'error';
+            }
+        }
+    }
+
+    // Ação: CADASTRAR PRODUTO
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['cadastrar_produto'])) {
         $ref = $_POST['ref_produto'] ?? '';
         $lote = $_POST['lote_produto'] ?? '';
@@ -74,7 +125,6 @@ try {
         $u_id = $_SESSION['user_id'];
 
         try {
-            // Verifica se já está vinculado
             $stmt_check = $pdo->prepare("SELECT id FROM consignados WHERE pregao_id = ?");
             $stmt_check->execute([$p_id]);
             
@@ -87,10 +137,6 @@ try {
                 $pdo->prepare($sql_insert)->execute([$p_id, $n_contrato, $u_id]);
                 $mensagem = "Pregão vinculado com sucesso ao Contrato Nº " . htmlspecialchars($n_contrato);
             }
-            
-            // Log opcional
-            // logActivity($pdo, $u_id, 'consignados', 'VINCULAR', $p_id, "Contrato: $n_contrato");
-            
             $tipo_mensagem = 'success';
             $pregao_id = null; // Volta para a lista
         } catch (Exception $e) {
@@ -99,7 +145,7 @@ try {
         }
     }
 
-    // Ação: EXCLUIR VÍNCULO (Solicitação do Print)
+    // Ação: EXCLUIR VÍNCULO
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['excluir_consignado_id'])) {
         $id_excluir = intval($_POST['excluir_consignado_id']);
         try {
@@ -116,12 +162,9 @@ try {
     // 2. BUSCAR DADOS
     // ---------------------------------------------------------
 
-    // Lista de Pregões para o Select
     $stmt_lista = $pdo->query("SELECT id, numero_edital, orgao_comprador FROM pregoes ORDER BY created_at DESC");
     $pregoes_disponiveis = $stmt_lista->fetchAll(PDO::FETCH_ASSOC);
 
-    // Lista de Vinculados (Tabela Principal)
-    // Adicionado p.numero_processo conforme solicitado
     $sql_vinculados = "SELECT 
                         c.id as consignado_id, 
                         c.numero_contrato, 
@@ -136,26 +179,23 @@ try {
                        ORDER BY c.created_at DESC";
     $lista_vinculados = $pdo->query($sql_vinculados)->fetchAll(PDO::FETCH_ASSOC);
 
-    // Detalhes do Pregão Selecionado
     if ($pregao_id) {
         $stmt_pregao = $pdo->prepare("SELECT * FROM pregoes WHERE id = ?");
         $stmt_pregao->execute([$pregao_id]);
         $pregao = $stmt_pregao->fetch(PDO::FETCH_ASSOC);
 
-        // Busca contrato existente
         $stmt_existente = $pdo->prepare("SELECT numero_contrato FROM consignados WHERE pregao_id = ?");
         $stmt_existente->execute([$pregao_id]);
         $contrato_existente = $stmt_existente->fetchColumn();
         $valor_contrato_inicial = $contrato_existente ? $contrato_existente : 'Não Informado';
 
         if ($pregao) {
-            // Itens
             $stmt_itens = $pdo->prepare(
                 "SELECT i.*, f.nome AS fornecedor_nome 
                  FROM itens_pregoes i 
                  JOIN fornecedores f ON i.fornecedor_id = f.id 
                  WHERE i.pregao_id = ? 
-                 ORDER BY f.nome ASC, i.numero_lote ASC, i.numero_item ASC"
+                 ORDER BY f.nome ASC, i.numero_lote ASC, CAST(i.numero_item AS UNSIGNED) ASC"
             );
             $stmt_itens->execute([$pregao_id]);
             foreach ($stmt_itens->fetchAll(PDO::FETCH_ASSOC) as $item) {
@@ -177,25 +217,67 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestão de Consignado</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="css/style.css?v=2.29">
+    <link rel="stylesheet" href="css/style.css?v=2.30">
+    <!-- FontAwesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @media print { 
             body { background-color: white; padding: 0; } 
             .no-print { display: none !important; } 
             .container { box-shadow: none !important; } 
         }
-        input[readonly] {
+        /* Estilos personalizados para a tabela consignado */
+        .table-header-custom th {
             background-color: #f3f4f6;
-            color: #6b7280;
-            cursor: not-allowed;
-            border-color: #d1d5db;
+            color: #374151;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 8px 4px;
+            border-bottom: 2px solid #e5e7eb;
+            text-align: center;
+            vertical-align: middle;
         }
-        input:not([readonly]) {
-            background-color: #ffffff;
-            color: #111827;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 1px #3b82f6;
+        .table-row-custom td {
+            padding: 8px 4px;
+            font-size: 0.8rem;
+            vertical-align: middle;
+            border-bottom: 1px solid #f3f4f6;
+            text-align: center;
         }
+        .table-row-custom td.text-left { text-align: left; }
+        .table-row-custom td.text-right { text-align: right; }
+        
+        /* Estilo para a linha de observação */
+        .row-observacao td {
+            background-color: #fafafa;
+            padding: 8px 16px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .obs-label {
+            font-weight: bold;
+            font-size: 0.75rem;
+            color: #4b5563;
+            text-transform: uppercase;
+            margin-right: 8px;
+        }
+        
+        .obs-content {
+            font-size: 0.85rem;
+            color: #1f2937;
+            font-style: italic;
+        }
+
+        .btn-mais-info {
+            color: #2563eb;
+            font-weight: 600;
+            font-size: 0.75rem;
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .btn-mais-info:hover { text-decoration: underline; }
     </style>
 </head>
 <body class="bg-[#d9e3ec] p-4 sm:p-8">
@@ -210,12 +292,10 @@ try {
             <h2 class="text-2xl font-bold text-gray-800">Cadastrar Pregão Consignado</h2>
             
             <div class="flex flex-wrap gap-2 justify-end">
-                <!-- Botão Cadastro de Produtos (Solicitado no Print 1) -->
                 <button type="button" onclick="openModalProduto()" class="btn btn-outline border-blue-600 text-blue-600 hover:bg-blue-50 font-semibold px-4 py-2 rounded-lg border-2">
-                    CADASTRO DE PRODUTOS
+                    <i class="fas fa-plus-circle mr-2"></i> CADASTRO DE PRODUTOS
                 </button>
 
-                <!-- Botão Voltar (Solicitado no Print 4 - Só aparece se estiver nos detalhes) -->
                 <?php if ($pregao): ?>
                     <a href="consignado.php" class="btn btn-secondary border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 bg-white">
                         Voltar
@@ -257,11 +337,10 @@ try {
 
         <?php if ($pregao): ?>
             <!-- ========================================== -->
-            <!-- VISTA DE DETALHES E VINCULAÇÃO -->
+            <!-- VISTA DE DETALHES E TABELA COMPLETA -->
             <!-- ========================================== -->
             <form method="POST" action="consignado.php" id="form-vincular">
                 <input type="hidden" name="pregao_id_hidden" value="<?php echo $pregao['id']; ?>">
-                <input type="hidden" name="numero_edital_hidden" value="<?php echo htmlspecialchars($pregao['numero_edital']); ?>">
 
                 <!-- Informações do Pregão -->
                 <div class="mb-8 p-6 bg-[#f7f6f6] rounded-lg border">
@@ -269,10 +348,7 @@ try {
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 text-gray-700 text-sm">
                         <div><strong>Edital:</strong> <span class="text-gray-900"><?php echo htmlspecialchars($pregao['numero_edital']); ?></span></div>
                         <div><strong>Processo:</strong> <span class="text-gray-900"><?php echo htmlspecialchars($pregao['numero_processo']); ?></span></div>
-                        <div><strong>Modalidade:</strong> <span class="text-gray-900"><?php echo htmlspecialchars($pregao['modalidade']); ?></span></div>
                         <div class="lg:col-span-2"><strong>Órgão Comprador:</strong> <span class="text-gray-900"><?php echo htmlspecialchars($pregao['orgao_comprador']); ?></span></div>
-                        <div><strong>UASG:</strong> <span class="text-gray-900"><?php echo htmlspecialchars($pregao['uasg']); ?></span></div>
-                        <div class="lg:col-span-3"><strong>Local da Disputa:</strong> <span class="text-gray-900"><?php echo htmlspecialchars($pregao['local_disputa']); ?></span></div>
                         
                         <div class="flex items-center space-x-2 mt-2">
                             <strong>Status:</strong>
@@ -281,46 +357,94 @@ try {
                             </span>
                         </div>
                     </div>
-                    <div class="mt-4 pt-4 border-t text-sm">
-                        <strong>Objeto:</strong>
-                        <p class="text-gray-600 mt-1"><?php echo htmlspecialchars($pregao['objeto']); ?></p>
-                    </div>
                 </div>
 
-                <!-- Itens -->
+                <!-- TABELA DE ITENS ATUALIZADA -->
                 <div class="mb-8">
                     <h3 class="text-xl font-bold text-gray-700 mb-4">Itens e Propostas</h3>
                     <?php if (empty($itens_agrupados)): ?>
                         <div class="text-center text-gray-500 p-4 border rounded-lg bg-gray-50">Nenhum item registrado neste pregão.</div>
                     <?php else: ?>
                         <?php foreach ($itens_agrupados as $fornecedor_nome => $lotes_do_fornecedor): ?>
-                            <div class="mb-6 break-inside-avoid shadow-sm rounded-lg border overflow-hidden">
-                                <h4 class="text-base font-bold text-gray-800 p-3 bg-gray-100 border-b">
+                            <div class="mb-8 break-inside-avoid shadow-sm rounded-lg border overflow-hidden bg-white">
+                                <h4 class="text-lg font-bold text-white p-3 bg-gray-800 border-b">
                                     <?php echo htmlspecialchars($fornecedor_nome); ?>
                                 </h4>
                                 <?php foreach ($lotes_do_fornecedor as $lote_nome => $itens_do_lote): ?>
                                     <?php if ($lote_nome !== 'SEM_LOTE'): ?>
-                                        <h5 class="text-sm font-semibold text-gray-600 p-2 bg-gray-50 text-center border-b"><?php echo htmlspecialchars($lote_nome); ?></h5>
+                                        <div class="bg-blue-50 p-2 text-center border-b border-blue-100">
+                                            <span class="text-sm font-bold text-blue-800 uppercase tracking-wide">
+                                                <i class="fas fa-box-open mr-1"></i> <?php echo htmlspecialchars($lote_nome); ?>
+                                            </span>
+                                        </div>
                                     <?php endif; ?>
-                                    <div class="overflow-x-auto bg-white">
-                                        <table class="min-w-full leading-normal text-sm">
-                                            <thead class="bg-white border-b">
-                                                <tr>
-                                                    <th class="px-4 py-2 text-left font-semibold text-gray-600">Nº</th>
-                                                    <th class="px-4 py-2 text-left font-semibold text-gray-600 w-1/3">Descrição</th>
-                                                    <th class="px-4 py-2 text-left font-semibold text-gray-600">Marca</th>
-                                                    <th class="px-4 py-2 text-left font-semibold text-gray-600">Qtd.</th>
-                                                    <th class="px-4 py-2 text-left font-semibold text-gray-600">Total</th>
+                                    
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full">
+                                            <thead>
+                                                <tr class="table-header-custom">
+                                                    <th class="w-10">Nº</th>
+                                                    <th class="w-24">E-fisco<br>CATMAT</th>
+                                                    <th class="text-left w-64">Descrição</th>
+                                                    <th class="w-16">QTD<br>TOTAL<br>LICITADO</th>
+                                                    <th class="w-16">CONS<br>ENTREGUE</th>
+                                                    <th class="w-16">SALDO<br>REST.<br>LICITADO</th>
+                                                    <th class="w-16">SALDO CONS.<br>HOSPITAL</th>
+                                                    <th class="w-24">VALOR UNIT<br>NA PROPOSTA</th>
+                                                    <th class="w-16">CONS<br>FATURADO</th>
+                                                    <th class="w-16">CONS<br>A FATURAR</th>
+                                                    <th class="w-24">VALOR TOTAL<br>NA PROPOSTA</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <?php foreach ($itens_do_lote as $item): ?>
-                                                    <tr class="border-b last:border-0 hover:bg-gray-50">
-                                                        <td class="px-4 py-3 text-gray-500"><?php echo htmlspecialchars($item['numero_item']); ?></td>
-                                                        <td class="px-4 py-3 text-gray-700"><?php echo htmlspecialchars($item['descricao']); ?></td>
-                                                        <td class="px-4 py-3 text-gray-500"><?php echo htmlspecialchars($item['fabricante'] ?? '-'); ?></td>
-                                                        <td class="px-4 py-3 text-gray-500"><?php echo htmlspecialchars($item['quantidade']); ?></td>
-                                                        <td class="px-4 py-3 font-semibold text-gray-700">R$ <?php echo number_format($item['quantidade'] * $item['valor_unitario'], 2, ',', '.'); ?></td>
+                                                <?php foreach ($itens_do_lote as $item): 
+                                                    // Cálculos
+                                                    $qtd_total = $item['quantidade'];
+                                                    $qtd_entregue = $item['qtd_entregue'] ?? 0;
+                                                    $saldo_rest_licitado = $qtd_total - $qtd_entregue;
+                                                    $saldo_hospital = $item['saldo_hospital'] ?? 0;
+                                                    $valor_unit = $item['valor_unitario'];
+                                                    $qtd_faturada = $item['qtd_faturada'] ?? 0;
+                                                    $cons_a_faturar = $item['cons_a_faturar'] ?? 0;
+                                                    $valor_total = $qtd_total * $valor_unit;
+                                                ?>
+                                                    <!-- Linha do Item -->
+                                                    <tr class="table-row-custom hover:bg-gray-50">
+                                                        <td class="font-bold"><?php echo htmlspecialchars($item['numero_item']); ?></td>
+                                                        <td class="text-xs text-gray-500 font-mono"><?php echo htmlspecialchars($item['codigo_catmat'] ?? '-'); ?></td>
+                                                        <td class="text-left text-gray-700 leading-tight py-3">
+                                                            <div class="line-clamp-2" title="<?php echo htmlspecialchars($item['descricao']); ?>">
+                                                                <?php echo htmlspecialchars($item['descricao']); ?>
+                                                            </div>
+                                                            <div class="text-xs text-gray-400 mt-1">Marca: <?php echo htmlspecialchars($item['fabricante'] ?? '-'); ?></div>
+                                                        </td>
+                                                        <td class="font-bold bg-gray-50"><?php echo $qtd_total; ?></td>
+                                                        <td><?php echo $qtd_entregue; ?></td>
+                                                        <td class="font-bold text-blue-700 bg-blue-50"><?php echo $saldo_rest_licitado; ?></td>
+                                                        <td class="bg-yellow-50 font-semibold text-yellow-700"><?php echo $saldo_hospital; ?></td>
+                                                        <td class="text-right whitespace-nowrap">R$ <?php echo number_format($valor_unit, 2, ',', '.'); ?></td>
+                                                        <td class="text-green-700"><?php echo $qtd_faturada; ?></td>
+                                                        <td class="text-red-600 font-bold"><?php echo $cons_a_faturar; ?></td>
+                                                        <td class="text-right whitespace-nowrap font-bold bg-gray-50">R$ <?php echo number_format($valor_total, 2, ',', '.'); ?></td>
+                                                    </tr>
+                                                    
+                                                    <!-- Linha de Observação e Ação -->
+                                                    <tr class="row-observacao">
+                                                        <td colspan="11">
+                                                            <div class="flex justify-between items-center w-full">
+                                                                <div class="flex items-start flex-grow mr-4">
+                                                                    
+                                                                    <span class="obs-label">OBSERVAÇÃO:</span>
+                                                                    <span class="obs-content">
+                                                                        <?php echo !empty($item['observacao_item']) ? htmlspecialchars($item['observacao_item']) : '<span class="text-gray-400">Nenhuma observação registrada.</span>'; ?>
+                                                                    </span>
+                                                                </div>
+                                                                <button type="button" class="btn-mais-info whitespace-nowrap" 
+                                                                        onclick='openModalItemInfo(<?php echo json_encode($item); ?>)'>
+                                                                    MAIS INFO 
+                                                                </button>
+                                                            </div>
+                                                        </td>
                                                     </tr>
                                                 <?php endforeach; ?>
                                             </tbody>
@@ -335,7 +459,7 @@ try {
                 <!-- Botão de Ação -->
                 <div class="flex justify-end pt-4 no-print">
                     <button type="button" onclick="openModalVincular()" class="btn btn-success text-lg px-8 py-3 shadow-lg transform hover:scale-105 transition-transform duration-200 flex items-center gap-2">
-                        <svg class="w-5 h-5 mr-2 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                        <i class="fas fa-file-contract"></i>
                         Vincular para Consignação
                     </button>
                 </div>
@@ -369,7 +493,6 @@ try {
                                         Editar
                                     </button>
                                 </div>
-                                <p class="text-xs text-gray-500 mt-2">Clique em "Editar" para inserir o número do contrato manualmente.</p>
                             </div>
                         </div>
 
@@ -383,9 +506,7 @@ try {
 
         <?php else: ?>
             
-            <!-- ========================================== -->
             <!-- LISTA DE VINCULADOS (TELA INICIAL) -->
-            <!-- ========================================== -->
             <div class="mt-8">
                 <div class="flex items-center gap-2 mb-6">
                     <h3 class="text-xl font-bold text-gray-700">Órgãos/Pregões já Vinculados</h3>
@@ -394,44 +515,35 @@ try {
 
                 <?php if (empty($lista_vinculados)): ?>
                     <div class="text-center p-12 bg-gray-50 rounded-lg border border-gray-200 border-dashed">
-                        <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                        <i class="fas fa-file-contract text-4xl text-gray-300 mb-3"></i>
                         <p class="text-lg text-gray-500">Nenhum pregão vinculado encontrado.</p>
-                        <p class="text-sm text-gray-400">Selecione um pregão acima para começar.</p>
                     </div>
                 <?php else: ?>
                     <div class="overflow-x-auto bg-white rounded-lg shadow-md border">
                         <table class="min-w-full leading-normal">
                             <thead class="bg-gray-50 border-b">
                                 <tr>
-                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Edital</th>
-                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nº Processo</th> <!-- NOVA COLUNA -->
-                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Órgão</th>
-                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Contrato</th>
-                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-5 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
+                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Edital</th>
+                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Nº Processo</th>
+                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Órgão</th>
+                                    <th class="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Contrato</th>
+                                    <th class="px-5 py-3 text-center text-xs font-bold text-gray-500 uppercase">Ações</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200">
                                 <?php foreach ($lista_vinculados as $v): ?>
                                 <tr class="hover:bg-gray-50 transition-colors">
                                     <td class="px-5 py-4 text-sm font-medium text-gray-900"><?php echo htmlspecialchars($v['numero_edital']); ?></td>
-                                    <td class="px-5 py-4 text-sm text-gray-700"><?php echo htmlspecialchars($v['numero_processo'] ?? 'N/D'); ?></td> <!-- DADO PROCESSO -->
+                                    <td class="px-5 py-4 text-sm text-gray-700"><?php echo htmlspecialchars($v['numero_processo'] ?? 'N/D'); ?></td>
                                     <td class="px-5 py-4 text-sm text-gray-700"><?php echo htmlspecialchars($v['orgao_comprador']); ?></td>
                                     <td class="px-5 py-4 text-sm text-gray-600 font-mono"><?php echo htmlspecialchars($v['numero_contrato']); ?></td>
-                                    <td class="px-5 py-4 text-sm">
-                                        <span class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                            Vinculado
-                                        </span>
-                                    </td>
                                     <td class="px-5 py-4 text-center flex justify-center items-center gap-3">
                                         <a href="consignado.php?pregao_id=<?php echo $v['pregao_id']; ?>" class="text-blue-600 hover:text-blue-900 font-medium text-sm">Ver Detalhes</a>
                                         
-                                        <!-- Botão de Excluir (Solicitado no Print 5) -->
                                         <form method="POST" class="inline" onsubmit="return confirm('Tem certeza que deseja remover este vínculo?');">
                                             <input type="hidden" name="excluir_consignado_id" value="<?php echo $v['consignado_id']; ?>">
                                             <button type="submit" class="text-red-500 hover:text-red-700 text-sm flex items-center gap-1" title="Excluir">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                                Excluir
+                                                <i class="fas fa-trash-alt"></i> Excluir
                                             </button>
                                         </form>
                                     </td>
@@ -446,7 +558,7 @@ try {
         <?php endif; ?>
     </div>
 
-    <!-- MODAL DE CADASTRO DE PRODUTO (NOVO) -->
+    <!-- MODAL DE CADASTRO DE PRODUTO -->
     <div id="modal-produto" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm">
         <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg">
             <div class="flex justify-between items-center mb-6 border-b pb-4">
@@ -478,35 +590,72 @@ try {
         </div>
     </div>
 
-    <!-- MODAL DE VINCULAÇÃO -->
-    <div id="modal-vincular" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg">
+    <!-- NOVO MODAL: MAIS INFO / EDIÇÃO DO ITEM -->
+    <div id="modal-item-info" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl my-10">
             <div class="flex justify-between items-center mb-6 border-b pb-4">
-                <h3 class="text-2xl font-bold text-gray-800">Vincular Pregão</h3>
-                <button type="button" onclick="closeModalVincular()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
+                <h3 class="text-xl font-bold text-gray-800">Detalhes e Saldos do Item</h3>
+                <button type="button" onclick="closeModalItemInfo()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
             </div>
             
-            <!-- Conteúdo do modal de vinculação permanece o mesmo -->
-            <div class="mb-6 space-y-4">
-                <!-- ... campos já existentes ... -->
-                 <p class="text-sm text-gray-600 mb-2">Confirme o número do contrato para realizar a vinculação.</p>
-                 <div class="flex gap-2">
-                    <input type="text" id="numero_contrato_modal" name="numero_contrato" form="form-vincular" class="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-500" readonly>
-                    <button type="button" onclick="enableEditContratoModal()" class="btn btn-primary px-3">Editar</button>
-                 </div>
-            </div>
+            <form method="POST" action="consignado.php" id="form-item-info">
+                <input type="hidden" name="atualizar_item_consignado" value="1">
+                <input type="hidden" name="item_id" id="modal_item_id">
+                <input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
 
-            <div class="flex justify-end gap-3 pt-4 border-t">
-                <button type="button" onclick="closeModalVincular()" class="btn btn-secondary px-6">Cancelar</button>
-                <button type="submit" form="form-vincular" name="vincular_consignado" class="btn btn-success px-6 shadow-md hover:shadow-lg">Salvar</button>
-            </div>
+                <div class="bg-gray-50 p-4 rounded-lg border mb-6">
+                    <p class="text-sm font-bold text-gray-600">ITEM <span id="modal_item_num"></span></p>
+                    <p class="text-md text-gray-900 font-medium mt-1" id="modal_item_desc"></p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">E-fisco / CATMAT</label>
+                        <input type="text" name="codigo_catmat" id="modal_catmat" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">QTD Total Licitado</label>
+                        <input type="text" id="modal_qtd_licitado" class="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-500" readonly>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">CONS Entregue</label>
+                        <input type="number" name="qtd_entregue" id="modal_qtd_entregue" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Saldo CONS Hospital</label>
+                        <input type="number" name="saldo_hospital" id="modal_saldo_hospital" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">CONS Faturado</label>
+                        <input type="number" name="qtd_faturada" id="modal_qtd_faturada" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">CONS A Faturar</label>
+                        <input type="number" name="cons_a_faturar" id="modal_cons_a_faturar" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Observação</label>
+                    <textarea name="observacao_item" id="modal_observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre o item..."></textarea>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-4 border-t">
+                    <button type="button" onclick="closeModalItemInfo()" class="btn btn-secondary px-6">Cancelar</button>
+                    <button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">Salvar Alterações</button>
+                </div>
+            </form>
         </div>
     </div>
 
     <script>
         // Funções para Modal de Vinculação
         function openModalVincular() {
-            // Copia o valor do input da página para o modal, se houver
             const inputPage = document.getElementById('numero_contrato');
             const inputModal = document.getElementById('numero_contrato_modal');
             if(inputPage && inputModal) {
@@ -527,21 +676,6 @@ try {
             input.classList.remove('bg-gray-100', 'text-gray-500', 'cursor-not-allowed');
             input.classList.add('bg-white', 'text-gray-900');
         }
-        
-        function enableEditContratoModal() {
-            const input = document.getElementById('numero_contrato_modal');
-            input.removeAttribute('readonly');
-            if(input.value === 'Não Informado') input.value = '';
-            input.focus();
-            input.classList.remove('bg-gray-100', 'text-gray-500');
-            input.classList.add('bg-white', 'text-gray-900');
-            
-            // Sincroniza de volta com o input hidden ou principal se necessário
-            input.addEventListener('input', function() {
-                const mainInput = document.getElementById('numero_contrato');
-                if(mainInput) mainInput.value = this.value;
-            });
-        }
 
         // Funções para Modal de Produto
         function openModalProduto() {
@@ -550,6 +684,26 @@ try {
 
         function closeModalProduto() {
             document.getElementById('modal-produto').classList.add('hidden');
+        }
+
+        // Funções para Modal Mais Info (Item)
+        function openModalItemInfo(item) {
+            document.getElementById('modal_item_id').value = item.id;
+            document.getElementById('modal_item_num').textContent = item.numero_item;
+            document.getElementById('modal_item_desc').textContent = item.descricao;
+            document.getElementById('modal_catmat').value = item.codigo_catmat || '';
+            document.getElementById('modal_qtd_licitado').value = item.quantidade;
+            document.getElementById('modal_qtd_entregue').value = item.qtd_entregue || 0;
+            document.getElementById('modal_saldo_hospital').value = item.saldo_hospital || 0;
+            document.getElementById('modal_qtd_faturada').value = item.qtd_faturada || 0;
+            document.getElementById('modal_cons_a_faturar').value = item.cons_a_faturar || 0;
+            document.getElementById('modal_observacao').value = item.observacao_item || '';
+            
+            document.getElementById('modal-item-info').classList.remove('hidden');
+        }
+
+        function closeModalItemInfo() {
+            document.getElementById('modal-item-info').classList.add('hidden');
         }
     </script>
 </body>
