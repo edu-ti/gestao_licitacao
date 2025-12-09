@@ -232,6 +232,7 @@ try {
                         <?php endif; ?>
                         <button class="tab-btn" data-tab="calendario">Calendário</button>
                         <a href="relatorios.php" class="tab-btn">Relatórios</a>
+                        <a href="consignado.php" class="tab-btn">Consignado</a>
                 </div>
 
                 <!-- Aba Pregões -->
@@ -496,4 +497,3 @@ try {
     </script>
 </body>
 </html>
-
