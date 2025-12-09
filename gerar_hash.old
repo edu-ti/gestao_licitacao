@@ -1,0 +1,17 @@
+<?php
+// Inclua seu arquivo de configuração para ter acesso à função hashPassword
+// Certifique-se de que o caminho para config.php está correto.
+// Por exemplo, se este arquivo estiver na mesma pasta que config.php, use:
+require_once 'config.php';
+
+// A senha que você deseja usar para o login (em texto simples)
+$senha_em_texto_simples = 'Fr@34232022'; // Altere esta senha para a que você quer usar!
+
+// Gere o hash da senha
+$hash_gerado = hashPassword($senha_em_texto_simples);
+
+echo "A senha em texto simples é: " . $senha_em_texto_simples . "<br>";
+echo "O hash correspondente é: <strong>" . $hash_gerado . "</strong><br><br>";
+echo "Copie este hash e cole-o na coluna 'senha' da sua tabela 'usuarios' no banco de dados para o usuário desejado.";
+echo "<br><br><strong>ATENÇÃO:</strong> Por motivos de segurança, delete este arquivo do seu servidor assim que terminar de usar.";
+?>
