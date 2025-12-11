@@ -43,14 +43,16 @@ try {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    // 3. Tabelas para AFC e CI (Criação inicial)
+    // 3. Tabelas para AFC e CI (Atualizadas)
     $pdo->exec("CREATE TABLE IF NOT EXISTS afcs_consignado (
         id INT AUTO_INCREMENT PRIMARY KEY,
         item_id INT NOT NULL,
         numero_afc VARCHAR(50) NOT NULL,
         qtd_solicitada INT DEFAULT 0,
+        qtd_entregue INT DEFAULT 0,
         valor_total DECIMAL(15,2) DEFAULT 0,
         detalhes_kit TEXT,
+        detalhes_entregue TEXT,
         observacao TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (item_id) REFERENCES itens_pregoes(id) ON DELETE CASCADE
@@ -73,14 +75,15 @@ try {
     // MIGRAÇÃO DE COLUNAS (CORREÇÃO DO ERRO)
     // ---------------------------------------------------------
     
-    // Lista de colunas necessárias na tabela afcs_consignado
+    // Verifica e cria colunas na tabela AFC se não existirem
     $colunas_afc = [
         'qtd_solicitada' => 'INT DEFAULT 0',
+        'qtd_entregue' => 'INT DEFAULT 0',
         'valor_total' => 'DECIMAL(15,2) DEFAULT 0',
         'detalhes_kit' => 'TEXT',
+        'detalhes_entregue' => 'TEXT',
         'observacao' => 'TEXT'
     ];
-
     foreach ($colunas_afc as $coluna => $tipo) {
         try {
             $pdo->query("SELECT $coluna FROM afcs_consignado LIMIT 1");
@@ -88,8 +91,8 @@ try {
             $pdo->exec("ALTER TABLE afcs_consignado ADD COLUMN $coluna $tipo");
         }
     }
-
-    // Lista de colunas necessárias na tabela cis_consignado
+    
+    // Verifica e cria colunas na tabela CI se não existirem
     $colunas_ci = [
         'numero_empenho' => 'VARCHAR(50)',
         'qtd_solicitada' => 'INT DEFAULT 0',
@@ -97,7 +100,6 @@ try {
         'detalhes_produtos' => 'TEXT',
         'observacao' => 'TEXT'
     ];
-
     foreach ($colunas_ci as $coluna => $tipo) {
         try {
             $pdo->query("SELECT $coluna FROM cis_consignado LIMIT 1");
@@ -113,7 +115,6 @@ try {
         'observacao_item' => 'TEXT',
         'qtd_faturada' => 'INT DEFAULT 0'
     ];
-
     foreach ($colunas_novas as $coluna => $tipo) {
         try {
             $pdo->query("SELECT $coluna FROM itens_pregoes LIMIT 1");
@@ -126,24 +127,16 @@ try {
     // 1. PROCESSAMENTO DE FORMULÁRIOS
     // ---------------------------------------------------------
 
-    // Ação: SALVAR AFC
+    // Ação: SALVAR/CRIAR AFC
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['salvar_afc'])) {
         $item_id = filter_var($_POST['item_id'], FILTER_VALIDATE_INT);
         $num_afc = $_POST['numero_afc'];
         $qtd = intval($_POST['qtd_solicitada']);
-        
-        // Tratamento do valor total (converter R$ 1.000,00 para 1000.00)
         $valor_raw = $_POST['valor_total_hidden'];
-        // Remove R$, espaços e pontos de milhar, troca vírgula por ponto
-        $valor_limpo = str_replace(['R$', ' ', '.', ','], ['', '', '', '.'], $valor_raw); 
-        // Como removemos o ponto do milhar E a vírgula virou ponto, se o número original era 1.234,56
-        // str_replace remove o ponto -> 1234,56 -> troca virgula -> 1234.56. Correto.
-        // MAS a logica acima pode falhar dependendo da formatação exata do JS. 
-        // Melhor abordagem: O JS deve enviar o valor float puro se possível, ou tratamos aqui com cuidado.
-        // O JS enviava o valor calculado. Vamos garantir que seja float.
-        $valor_tot = floatval($valor_limpo); 
+        $valor_limpo = str_replace(['R$', ' ', '.', ','], ['', '', '', '.'], $valor_raw);
+        $valor_tot = floatval($valor_limpo);
         
-        // Se o valor_raw veio vazio ou zerado do JS, recalcula aqui por segurança
+        // Recalculo de segurança
         if ($valor_tot <= 0 && $item_id) {
              $stmt_item = $pdo->prepare("SELECT valor_unitario FROM itens_pregoes WHERE id = ?");
              $stmt_item->execute([$item_id]);
@@ -153,7 +146,7 @@ try {
 
         $obs = $_POST['observacao'];
         
-        // Captura os componentes do kit (JSON)
+        // Captura os componentes do kit (Solicitados na criação)
         $kit_components = [
             'oxigenador' => $_POST['qtd_oxigenador'] ?? 0,
             'bomba' => $_POST['qtd_bomba'] ?? 0,
@@ -177,25 +170,46 @@ try {
         $pregao_id = $_POST['pregao_id_redirect'];
     }
 
+    // Ação: ATUALIZAR DETALHES DA AFC (Atualizado para salvar kits manuais)
+    if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['atualizar_detalhes_afc'])) {
+        $afc_id = filter_var($_POST['afc_id'], FILTER_VALIDATE_INT);
+        $qtd_entregue = intval($_POST['qtd_entregue']);
+        $obs = $_POST['observacao'];
+        
+        // Captura os dados dos kits entregues manualmente
+        $kits_entregues = [
+            'oxigenador' => $_POST['kit_entregue_oxigenador'] ?? 0,
+            'bomba' => $_POST['kit_entregue_bomba'] ?? 0,
+            'hemoconcentrador' => $_POST['kit_entregue_hemoconcentrador'] ?? 0,
+            'tubos' => $_POST['kit_entregue_tubos'] ?? 0,
+            'cardioplegia' => $_POST['kit_entregue_cardioplegia'] ?? 0
+        ];
+        $detalhes_entregue_json = json_encode($kits_entregues);
+        
+        if ($afc_id) {
+            try {
+                $sql = "UPDATE afcs_consignado SET qtd_entregue = ?, detalhes_entregue = ?, observacao = ? WHERE id = ?";
+                $pdo->prepare($sql)->execute([$qtd_entregue, $detalhes_entregue_json, $obs, $afc_id]);
+                
+                $mensagem = "Detalhes da AFC atualizados com sucesso!";
+                $tipo_mensagem = 'success';
+            } catch (Exception $e) {
+                $mensagem = "Erro ao atualizar AFC: " . $e->getMessage();
+                $tipo_mensagem = 'error';
+            }
+        }
+        $pregao_id = $_POST['pregao_id_redirect'];
+    }
+
     // Ação: SALVAR CI
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['salvar_ci'])) {
         $item_id = filter_var($_POST['item_id'], FILTER_VALIDATE_INT);
         $num_ci = $_POST['numero_ci'];
         $num_empenho = $_POST['numero_empenho'];
         $qtd = intval($_POST['qtd_solicitada']);
-        
         $valor_raw = $_POST['valor_total_hidden'];
         $valor_limpo = str_replace(['R$', ' ', '.', ','], ['', '', '', '.'], $valor_raw);
         $valor_tot = floatval($valor_limpo);
-
-         // Recalculo de segurança
-        if ($valor_tot <= 0 && $item_id) {
-             $stmt_item = $pdo->prepare("SELECT valor_unitario FROM itens_pregoes WHERE id = ?");
-             $stmt_item->execute([$item_id]);
-             $v_unit = $stmt_item->fetchColumn();
-             $valor_tot = $qtd * $v_unit;
-        }
-
         $obs = $_POST['observacao'];
         
         if ($item_id && $num_ci) {
@@ -212,7 +226,7 @@ try {
         $pregao_id = $_POST['pregao_id_redirect'];
     }
 
-    // Ação: ATUALIZAR ITEM (Via Modal Editar)
+    // Ação: ATUALIZAR ITEM
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['atualizar_item_consignado'])) {
         $item_id = filter_var($_POST['item_id'], FILTER_VALIDATE_INT);
         $catmat = $_POST['codigo_catmat'] ?? '';
@@ -306,8 +320,8 @@ try {
             );
             $stmt_itens->execute([$pregao_id]);
             foreach ($stmt_itens->fetchAll(PDO::FETCH_ASSOC) as $item) {
-                // Recupera AFCs
-                $stmt_afc = $pdo->prepare("SELECT numero_afc, qtd_solicitada, valor_total FROM afcs_consignado WHERE item_id = ? ORDER BY created_at DESC");
+                // Recupera AFCs completas
+                $stmt_afc = $pdo->prepare("SELECT * FROM afcs_consignado WHERE item_id = ? ORDER BY created_at DESC");
                 $stmt_afc->execute([$item['id']]);
                 $item['afcs'] = $stmt_afc->fetchAll(PDO::FETCH_ASSOC);
 
@@ -334,59 +348,10 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestão de Consignado</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="css/style.css?v=2.33">
+    <link rel="stylesheet" href="css/style.css?v=2.35">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        @media print { 
-            body { background-color: white; padding: 0; } 
-            .no-print { display: none !important; } 
-            .container { box-shadow: none !important; } 
-        }
-        
-        .table-header-custom th {
-            background-color: #f3f4f6;
-            color: #374151;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            padding: 8px 4px;
-            border-bottom: 2px solid #e5e7eb;
-            text-align: center;
-            vertical-align: middle;
-        }
-        .table-row-custom td {
-            padding: 8px 4px;
-            font-size: 0.8rem;
-            vertical-align: middle;
-            border-bottom: 1px solid #f3f4f6;
-            text-align: center;
-        }
-        .table-row-custom td.text-left { text-align: left; }
-        .table-row-custom td.text-right { text-align: right; }
-        
-        .row-action td { background-color: #fafafa; padding: 6px 16px; border-bottom: 1px solid #f3f4f6; }
-        .row-details td { background-color: #ffffff; padding: 2px 16px; border-bottom: 1px solid #f3f4f6; font-size: 0.75rem; color: #4b5563; }
-        .row-details:last-child td { border-bottom: 2px solid #e5e7eb; }
-
-        .obs-label { font-weight: bold; font-size: 0.7rem; color: #6b7280; text-transform: uppercase; margin-right: 6px; }
-        .obs-content { font-size: 0.8rem; color: #374151; font-style: italic; }
-
-        .action-link { color: #2563eb; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; cursor: pointer; margin-left: 12px; transition: color 0.2s; }
-        .action-link:hover { color: #1e40af; text-decoration: underline; }
-        
-        .detail-label { font-weight: bold; margin-right: 8px; color: #111827; font-size: 0.7rem; }
-        .detail-item { display: inline-block; margin-right: 12px; color: #4b5563; cursor: pointer; font-family: monospace; background-color: #f3f4f6; padding: 1px 6px; border-radius: 4px; }
-        .detail-item:hover { color: #2563eb; background-color: #e0e7ff; }
-
-        /* Estilos específicos para os Modais de AFC e CI */
-        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; padding-bottom: 1rem; margin-bottom: 1.5rem; }
-        .modal-title { font-size: 1.25rem; font-weight: 700; color: #1f2937; }
-        .tag-badge { background-color: #e5e7eb; color: #374151; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.8rem; margin-right: 0.5rem; }
-        .form-label { display: block; font-size: 0.75rem; font-weight: 700; color: #4b5563; margin-bottom: 0.25rem; text-transform: uppercase; }
-        .form-input-readonly { background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; }
-        .kit-section { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; background-color: #f9fafb; }
-        .kit-title { font-size: 0.85rem; font-weight: 700; color: #374151; margin-bottom: 0.75rem; text-decoration: underline; text-underline-offset: 4px; }
-    </style>
+    <link rel="stylesheet" href="css/consignado.css?v=1.0"> 
+   
 </head>
 <body class="bg-[#d9e3ec] p-4 sm:p-8">
     <div class="container mx-auto bg-white p-4 sm:p-8 rounded-lg shadow-lg">
@@ -478,7 +443,6 @@ try {
                                                     <th class="w-16">QTD<br>TOTAL<br>LICITADO</th>
                                                     <th class="w-16">CONS<br>ENTREGUE</th>
                                                     <th class="w-16">SALDO<br>REST.<br>LICITADO</th>
-                                                    <!-- REMOVIDO SALDO CONS HOSPITAL -->
                                                     <th class="w-24">VALOR UNIT<br>NA PROPOSTA</th>
                                                     <th class="w-24">CONS<br>FATURADO<br>(R$)</th>
                                                     <th class="w-24">CONS<br>A FATURAR<br>(R$)</th>
@@ -542,7 +506,9 @@ try {
                                                             <span class="detail-label">AFC:</span>
                                                             <?php if (!empty($item['afcs'])): ?>
                                                                 <?php foreach ($item['afcs'] as $afc): ?>
-                                                                    <span class="detail-item" title="Valor: R$ <?php echo number_format($afc['valor_total'], 2, ',', '.'); ?>">
+                                                                    <!-- CLIQUE PARA ABRIR NOVO MODAL DE DETALHES -->
+                                                                    <span class="badge-afc" 
+                                                                          onclick='openModalDetalhesAFC(<?php echo json_encode($afc); ?>, <?php echo json_encode($item); ?>, "<?php echo $lote_nome; ?>")'>
                                                                         <?php echo htmlspecialchars($afc['numero_afc']); ?>
                                                                     </span>
                                                                 <?php endforeach; ?>
@@ -582,8 +548,8 @@ try {
                         <i class="fas fa-file-contract"></i> Vincular para Consignação
                     </button>
                 </div>
-
-                <!-- MODAL DE VINCULAÇÃO -->
+                
+                <!-- Modal Vincular -->
                 <div id="modal-vincular" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm">
                     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg">
                         <div class="flex justify-between items-center mb-6 border-b pb-4">
@@ -613,9 +579,10 @@ try {
                         </div>
                     </div>
                 </div>
-            </form>
 
+            </form>
         <?php else: ?>
+            <!-- Lista de Vinculados -->
             <div class="mt-8">
                 <div class="flex items-center gap-2 mb-6">
                     <h3 class="text-xl font-bold text-gray-700">Órgãos/Pregões já Vinculados</h3>
@@ -694,124 +661,202 @@ try {
         </div>
     </div>
 
-    <!-- MODAL EDITAR (ITEM) -->
+    <!-- MODAL EDITAR ITEM -->
     <div id="modal-item-info" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl my-10">
-            <div class="flex justify-between items-center mb-6 border-b pb-4">
-                <h3 class="text-xl font-bold text-gray-800">Editar Item Consignado</h3>
-                <button type="button" onclick="closeModalItemInfo()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
-            </div>
+         <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl my-10">
+            <div class="flex justify-between items-center mb-6 border-b pb-4"><h3 class="text-xl font-bold text-gray-800">Editar Item Consignado</h3><button type="button" onclick="closeModalItemInfo()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button></div>
             <form method="POST" action="consignado.php" id="form-item-info">
-                <input type="hidden" name="atualizar_item_consignado" value="1">
-                <input type="hidden" name="item_id" id="modal_item_id">
-                <input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
-
-                <div class="bg-gray-50 p-4 rounded-lg border mb-6">
-                    <p class="text-sm font-bold text-gray-600">ITEM <span id="modal_item_num"></span></p>
-                    <p class="text-md text-gray-900 font-medium mt-1" id="modal_item_desc"></p>
-                </div>
-
+                <input type="hidden" name="atualizar_item_consignado" value="1"><input type="hidden" name="item_id" id="modal_item_id"><input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
+                <div class="bg-gray-50 p-4 rounded-lg border mb-6"><p class="text-sm font-bold text-gray-600">ITEM <span id="modal_item_num"></span></p><p class="text-md text-gray-900 font-medium mt-1" id="modal_item_desc"></p></div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">E-fisco / CATMAT</label>
-                        <input type="text" name="codigo_catmat" id="modal_catmat" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">QTD Total Licitado</label>
-                        <input type="text" id="modal_qtd_licitado" class="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-500" readonly>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">CONS Entregue</label>
-                        <input type="number" name="qtd_entregue" id="modal_qtd_entregue" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">QTD Faturada</label>
-                        <input type="number" name="qtd_faturada" id="modal_qtd_faturada" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">E-fisco / CATMAT</label><input type="text" name="codigo_catmat" id="modal_catmat" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">QTD Total Licitado</label><input type="text" id="modal_qtd_licitado" class="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-500" readonly></div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">CONS Entregue</label><input type="number" name="qtd_entregue" id="modal_qtd_entregue" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">QTD Faturada</label><input type="number" name="qtd_faturada" id="modal_qtd_faturada" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
                 </div>
+                <div class="mb-6"><label class="block text-sm font-bold text-gray-700 mb-1">Observação</label><textarea name="observacao_item" id="modal_observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre o item..."></textarea></div>
+                <div class="flex justify-end gap-3 pt-4 border-t"><button type="button" onclick="closeModalItemInfo()" class="btn btn-secondary px-6">Cancelar</button><button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">Salvar Alterações</button></div>
+            </form>
+        </div>
+    </div>
 
-                <div class="mb-6">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Observação</label>
-                    <textarea name="observacao_item" id="modal_observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre o item..."></textarea>
+    <!-- MODAL ADICIONAR AFC -->
+    <div id="modal-afc" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl my-10">
+            <div class="modal-header"><h3 class="modal-title">ADICIONAR AFC</h3><button type="button" onclick="closeModalAFC()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button></div>
+            <form method="POST" action="consignado.php" id="form-afc">
+                <input type="hidden" name="salvar_afc" value="1"><input type="hidden" name="item_id" id="afc_item_id"><input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
+                <div class="flex mb-6"><span class="tag-badge" id="afc_lote">LOTE 01</span><span class="tag-badge" id="afc_item_num">ITEM 01</span></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="space-y-4">
+                        <div><label class="form-label">E-fisco / CATMAT</label><input type="text" id="afc_catmat" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly></div>
+                        <div><label class="form-label">QTD SOLICITADA</label><input type="number" name="qtd_solicitada" id="afc_qtd" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required oninput="calcTotalAFC()"></div>
+                        <div><label class="form-label">VALOR UNITÁRIO DO ITEM</label><input type="text" id="afc_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly><input type="hidden" id="afc_unit_val"></div>
+                        <div><label class="form-label">VALOR TOTAL DO ITEM</label><input type="text" id="afc_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly><input type="hidden" name="valor_total_hidden" id="afc_total_val"></div>
+                    </div>
+                    <div class="space-y-4">
+                         <div class="flex items-center gap-2 mb-2"><label class="form-label mb-0">AFC Nº</label><input type="text" name="numero_afc" class="flex-grow px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required></div>
+                         <div class="kit-section"><h4 class="kit-title">ENTREGAR KITS</h4>
+                             <div class="grid grid-cols-[1fr_80px_80px_80px] gap-y-2 items-center text-sm">
+                                 <input type="number" name="qtd_oxigenador" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">OXIGENADOR</span>
+                                 <input type="number" name="qtd_bomba" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">BOMBA CENTRÍFUGA</span>
+                                 <input type="number" name="qtd_hemoconcentrador" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">HEMOCONCENTRADOR</span>
+                                 <input type="number" name="qtd_tubos" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">CONJUNTO DE TUBOS</span>
+                                 <input type="number" name="qtd_cardioplegia" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">CARDIOPLEGIA CRISTALOIDE</span>
+                             </div>
+                         </div>
+                    </div>
                 </div>
+                <div class="mb-6"><label class="form-label">Observação</label><textarea name="observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre a AFC..."></textarea></div>
+                <div class="flex justify-end gap-3 pt-4 border-t"><button type="button" onclick="closeModalAFC()" class="btn btn-secondary px-6">Cancelar</button><button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">SALVAR</button></div>
+            </form>
+        </div>
+    </div>
 
-                <div class="flex justify-end gap-3 pt-4 border-t">
-                    <button type="button" onclick="closeModalItemInfo()" class="btn btn-secondary px-6">Cancelar</button>
-                    <button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">Salvar Alterações</button>
+    <!-- MODAL ADICIONAR CI -->
+    <div id="modal-ci" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl my-10">
+            <div class="modal-header"><h3 class="modal-title">ADICIONAR CI</h3><button type="button" onclick="closeModalCI()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button></div>
+            <form method="POST" action="consignado.php" id="form-ci">
+                <input type="hidden" name="salvar_ci" value="1"><input type="hidden" name="item_id" id="ci_item_id"><input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
+                <div class="flex justify-between items-center mb-6">
+                     <div class="flex"><span class="tag-badge" id="ci_lote">LOTE 01</span><span class="tag-badge" id="ci_item_num">ITEM 01</span></div>
+                     <div class="flex gap-4"><div class="flex items-center gap-2"><label class="form-label mb-0">CI Nº</label><input type="text" name="numero_ci" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required></div><div class="flex items-center gap-2"><label class="form-label mb-0">EMPENHO Nº</label><input type="text" name="numero_empenho" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div></div>
                 </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="space-y-4">
+                        <div><label class="form-label">E-fisco / CATMAT</label><input type="text" id="ci_catmat" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly></div>
+                        <div><label class="form-label">QTD SOLICITADA</label><input type="number" name="qtd_solicitada" id="ci_qtd" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required oninput="calcTotalCI()"></div>
+                        <div><label class="form-label">VALOR UNITÁRIO DO ITEM</label><input type="text" id="ci_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly><input type="hidden" id="ci_unit_val"></div>
+                        <div><label class="form-label">VALOR TOTAL DO ITEM</label><input type="text" id="ci_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly><input type="hidden" name="valor_total_hidden" id="ci_total_val"></div>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="flex justify-center my-4"><button type="button" class="btn btn-outline border-blue-500 text-blue-600 w-full font-bold">+ PRODUTOS</button></div>
+                        <div class="border rounded-lg h-40 overflow-y-auto p-2 bg-gray-50 text-xs text-gray-500"><table class="w-full text-left"><thead><tr class="border-b"><th class="pb-1">PRODUTOS</th><th class="pb-1">LOTE</th><th class="pb-1">REF.</th></tr></thead><tbody id="ci_produtos_list"><tr><td>OXIG. DE MEMB. ADULTO</td><td>-</td><td>-</td></tr></tbody></table></div>
+                    </div>
+                </div>
+                <div class="mb-6"><label class="form-label">Observação</label><textarea name="observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre a CI..."></textarea></div>
+                <div class="flex justify-end gap-3 pt-4 border-t"><button type="button" onclick="closeModalCI()" class="btn btn-secondary px-6">Cancelar</button><button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">SALVAR</button></div>
             </form>
         </div>
     </div>
 
     <!-- ============================================= -->
-    <!-- MODAL: ADICIONAR AFC -->
+    <!-- NOVO MODAL: DETALHES AFC (COMPLETO E FUNCIONAL) -->
     <!-- ============================================= -->
-    <div id="modal-afc" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
+    <div id="modal-detalhes-afc" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
         <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl my-10">
             <div class="modal-header">
-                <h3 class="modal-title">ADICIONAR AFC</h3>
-                <button type="button" onclick="closeModalAFC()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
+                <h3 class="modal-title">DETALHES AFC</h3>
+                <button type="button" onclick="closeModalDetalhesAFC()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
             </div>
             
-            <form method="POST" action="consignado.php" id="form-afc">
-                <input type="hidden" name="salvar_afc" value="1">
-                <input type="hidden" name="item_id" id="afc_item_id">
+            <form method="POST" action="consignado.php" id="form-detalhes-afc">
+                <input type="hidden" name="atualizar_detalhes_afc" value="1">
+                <input type="hidden" name="afc_id" id="det_afc_id">
                 <input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
                 
-                <!-- Info do Item (Tags) -->
-                <div class="flex mb-6">
-                    <span class="tag-badge" id="afc_lote">LOTE 01</span>
-                    <span class="tag-badge" id="afc_item_num">ITEM 01</span>
+                <!-- Header Info -->
+                <div class="flex justify-between items-start mb-6">
+                    <div class="flex flex-col gap-2">
+                        <div class="flex"><span class="tag-badge" id="det_lote">LOTE 01</span><span class="tag-badge" id="det_item_num">ITEM 01</span></div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                         <label class="form-label mb-0 text-lg">AFC Nº</label>
+                         <input type="text" id="det_numero_afc" class="w-32 px-3 py-2 border rounded-lg bg-gray-100 text-gray-700 font-bold text-center" readonly>
+                    </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <!-- Coluna Esquerda -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+                    <!-- Coluna Esquerda: Dados Principais -->
                     <div class="space-y-4">
                         <div>
                             <label class="form-label">E-fisco / CATMAT</label>
-                            <input type="text" id="afc_catmat" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
+                            <input type="text" id="det_catmat" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
                         </div>
                         <div>
                             <label class="form-label">QTD SOLICITADA</label>
-                            <input type="number" name="qtd_solicitada" id="afc_qtd" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required oninput="calcTotalAFC()">
+                            <input type="number" id="det_qtd_solicitada" class="w-full px-3 py-2 border rounded-lg form-input-readonly font-bold" readonly>
                         </div>
+                        
+                        <!-- Campos de Entrega -->
+                        <div class="bg-blue-50 p-4 rounded-lg border border-blue-100 space-y-3">
+                            <div>
+                                <label class="form-label text-blue-800">QTD ENTREGUE <span class="text-xs font-normal lowercase">(Inserido Manualmente)</span></label>
+                                <input type="number" name="qtd_entregue" id="det_qtd_entregue" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-900" oninput="calcDetalhesAFC()">
+                            </div>
+                            <div>
+                                <label class="form-label text-red-600">FALTA ENTREGAR <span class="text-xs font-normal lowercase">(Calculado)</span></label>
+                                <input type="number" id="det_falta_entregar" class="w-full px-3 py-2 border rounded-lg bg-red-50 text-red-700 font-bold" readonly>
+                            </div>
+                        </div>
+
                         <div>
                             <label class="form-label">VALOR UNITÁRIO DO ITEM</label>
-                            <input type="text" id="afc_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
-                            <input type="hidden" id="afc_unit_val">
+                            <input type="text" id="det_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
+                            <input type="hidden" id="det_unit_val">
                         </div>
                         <div>
                             <label class="form-label">VALOR TOTAL DO ITEM</label>
-                            <input type="text" id="afc_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
-                            <input type="hidden" name="valor_total_hidden" id="afc_total_val">
+                            <input type="text" id="det_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly font-bold" readonly>
                         </div>
                     </div>
 
-                    <!-- Coluna Direita -->
+                    <!-- Coluna Direita: Kits e Componentes -->
                     <div class="space-y-4">
-                         <div class="flex items-center gap-2 mb-2">
-                             <label class="form-label mb-0">AFC Nº</label>
-                             <input type="text" name="numero_afc" class="flex-grow px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required>
-                         </div>
+                         <div class="kit-section bg-white border-gray-200">
+                             <div class="flex justify-between items-center border-b pb-2 mb-3">
+                                <h4 class="kit-title mb-0">DETALHAMENTO KITS</h4>
+                                <span class="text-xs text-gray-500">Qtd Entregue editável manualmente</span>
+                             </div>
+                             
+                             <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center text-xs font-semibold text-gray-600 text-center uppercase mb-2">
+                                <div class="text-left">Componente</div>
+                                <div>Entregar</div>
+                                <div>Entregue</div>
+                                <div>Falta</div>
+                             </div>
 
-                         <!-- KIT SECTION -->
-                         <div class="kit-section">
-                             <h4 class="kit-title">ENTREGAR KITS</h4>
-                             <div class="grid grid-cols-[60px_1fr] gap-y-2 items-center text-sm">
-                                 <input type="number" name="qtd_oxigenador" class="w-full px-2 py-1 border rounded text-center">
-                                 <span class="font-semibold text-gray-700">OXIGENADOR</span>
+                             <div id="det_kit_container" class="space-y-2 text-sm">
+                                 <!-- OXIGENADOR -->
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
+                                     <span class="text-gray-800 font-medium truncate" title="OXIGENADOR">OXIGENADOR</span>
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_oxigenador" readonly>
+                                     <input type="number" name="kit_entregue_oxigenador" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_oxigenador" oninput="calcFaltaComponente(this)">
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_oxigenador" readonly>
+                                 </div>
+                                 
+                                 <!-- BOMBA CENTRIFUGA -->
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
+                                     <span class="text-gray-800 font-medium truncate" title="BOMBA CENTRIFUGA">BOMBA CENT.</span>
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_bomba" readonly>
+                                     <input type="number" name="kit_entregue_bomba" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_bomba" oninput="calcFaltaComponente(this)">
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_bomba" readonly>
+                                 </div>
 
-                                 <input type="number" name="qtd_bomba" class="w-full px-2 py-1 border rounded text-center">
-                                 <span class="font-semibold text-gray-700">BOMBA CENTRÍFUGA</span>
+                                 <!-- HEMOCONCENTRADOR -->
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
+                                     <span class="text-gray-800 font-medium truncate">HEMOCONC.</span>
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_hemoconcentrador" readonly>
+                                     <input type="number" name="kit_entregue_hemoconcentrador" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_hemoconcentrador" oninput="calcFaltaComponente(this)">
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_hemoconcentrador" readonly>
+                                 </div>
 
-                                 <input type="number" name="qtd_hemoconcentrador" class="w-full px-2 py-1 border rounded text-center">
-                                 <span class="font-semibold text-gray-700">HEMOCONCENTRADOR</span>
+                                 <!-- CONJUNTO DE TUBOS -->
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
+                                     <span class="text-gray-800 font-medium truncate">CONJ. TUBOS</span>
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_tubos" readonly>
+                                     <input type="number" name="kit_entregue_tubos" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_tubos" oninput="calcFaltaComponente(this)">
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_tubos" readonly>
+                                 </div>
 
-                                 <input type="number" name="qtd_tubos" class="w-full px-2 py-1 border rounded text-center">
-                                 <span class="font-semibold text-gray-700">CONJUNTO DE TUBOS</span>
-
-                                 <input type="number" name="qtd_cardioplegia" class="w-full px-2 py-1 border rounded text-center">
-                                 <span class="font-semibold text-gray-700">CARDIOPLEGIA CRISTALOIDE</span>
+                                 <!-- CARDIOPLEGIA -->
+                                  <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
+                                     <span class="text-gray-800 font-medium truncate">CARDIOPLEGIA</span>
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_cardioplegia" readonly>
+                                     <input type="number" name="kit_entregue_cardioplegia" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_cardioplegia" oninput="calcFaltaComponente(this)">
+                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_cardioplegia" readonly>
+                                 </div>
                              </div>
                          </div>
                     </div>
@@ -819,223 +864,18 @@ try {
 
                 <div class="mb-6">
                     <label class="form-label">Observação</label>
-                    <textarea name="observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre a AFC..."></textarea>
+                    <textarea name="observacao" id="det_observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações..."></textarea>
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4 border-t">
-                    <button type="button" onclick="closeModalAFC()" class="btn btn-secondary px-6">Cancelar</button>
+                    <button type="button" onclick="closeModalDetalhesAFC()" class="btn btn-secondary px-6">Cancelar</button>
                     <button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">SALVAR</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- ============================================= -->
-    <!-- MODAL: ADICIONAR CI -->
-    <!-- ============================================= -->
-    <div id="modal-ci" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl my-10">
-            <div class="modal-header">
-                <h3 class="modal-title">ADICIONAR CI</h3>
-                <button type="button" onclick="closeModalCI()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
-            </div>
-            
-            <form method="POST" action="consignado.php" id="form-ci">
-                <input type="hidden" name="salvar_ci" value="1">
-                <input type="hidden" name="item_id" id="ci_item_id">
-                <input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
-                
-                <!-- Info do Item (Tags) -->
-                <div class="flex justify-between items-center mb-6">
-                     <div class="flex">
-                        <span class="tag-badge" id="ci_lote">LOTE 01</span>
-                        <span class="tag-badge" id="ci_item_num">ITEM 01</span>
-                     </div>
-                     
-                     <div class="flex gap-4">
-                         <div class="flex items-center gap-2">
-                             <label class="form-label mb-0">CI Nº</label>
-                             <input type="text" name="numero_ci" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required>
-                         </div>
-                         <div class="flex items-center gap-2">
-                             <label class="form-label mb-0">EMPENHO Nº</label>
-                             <input type="text" name="numero_empenho" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
-                         </div>
-                     </div>
-                </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <!-- Coluna Esquerda -->
-                    <div class="space-y-4">
-                        <div>
-                            <label class="form-label">E-fisco / CATMAT</label>
-                            <input type="text" id="ci_catmat" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
-                        </div>
-                        <div>
-                            <label class="form-label">QTD SOLICITADA</label>
-                            <input type="number" name="qtd_solicitada" id="ci_qtd" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required oninput="calcTotalCI()">
-                        </div>
-                        <div>
-                            <label class="form-label">VALOR UNITÁRIO DO ITEM</label>
-                            <input type="text" id="ci_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
-                            <input type="hidden" id="ci_unit_val">
-                        </div>
-                        <div>
-                            <label class="form-label">VALOR TOTAL DO ITEM</label>
-                            <input type="text" id="ci_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
-                            <input type="hidden" name="valor_total_hidden" id="ci_total_val">
-                        </div>
-                    </div>
-
-                    <!-- Coluna Direita -->
-                    <div class="space-y-4">
-                        <!-- Botão Produto -->
-                        <div class="flex justify-center my-4">
-                            <button type="button" class="btn btn-outline border-blue-500 text-blue-600 w-full font-bold">+ PRODUTOS</button>
-                        </div>
-                        <!-- Area de Lista de Produtos (Simulação) -->
-                        <div class="border rounded-lg h-40 overflow-y-auto p-2 bg-gray-50 text-xs text-gray-500">
-                             <table class="w-full text-left">
-                                 <thead>
-                                     <tr class="border-b">
-                                         <th class="pb-1">PRODUTOS</th>
-                                         <th class="pb-1">LOTE</th>
-                                         <th class="pb-1">REF.</th>
-                                     </tr>
-                                 </thead>
-                                 <tbody id="ci_produtos_list">
-                                     <!-- Exemplo estático ou preenchido via JS -->
-                                     <tr><td>OXIG. DE MEMB. ADULTO</td><td>-</td><td>-</td></tr>
-                                     <tr><td>CONJUNTO TUBOS CAVA DUPLA</td><td>-</td><td>-</td></tr>
-                                     <tr><td>HEMOCONCENTRADOR</td><td>-</td><td>-</td></tr>
-                                 </tbody>
-                             </table>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="mb-6">
-                    <label class="form-label">Observação</label>
-                    <textarea name="observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre a CI..."></textarea>
-                </div>
-
-                <div class="flex justify-end gap-3 pt-4 border-t">
-                    <button type="button" onclick="closeModalCI()" class="btn btn-secondary px-6">Cancelar</button>
-                    <button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">SALVAR</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <script>
-        // Funções para Modal de Vinculação
-        function openModalVincular() {
-            const inputPage = document.getElementById('numero_contrato');
-            const inputModal = document.getElementById('numero_contrato_modal');
-            if(inputPage && inputModal) {
-                inputModal.value = inputPage.value;
-            }
-            document.getElementById('modal-vincular').classList.remove('hidden');
-        }
-
-        function closeModalVincular() {
-            document.getElementById('modal-vincular').classList.add('hidden');
-        }
-
-        function enableEditContrato() {
-            const input = document.getElementById('numero_contrato');
-            input.removeAttribute('readonly');
-            if(input.value === 'Não Informado') input.value = '';
-            input.focus();
-            input.classList.remove('bg-gray-100', 'text-gray-500', 'cursor-not-allowed');
-            input.classList.add('bg-white', 'text-gray-900');
-        }
-
-        // Funções para Modal de Produto
-        function openModalProduto() {
-            document.getElementById('modal-produto').classList.remove('hidden');
-        }
-
-        function closeModalProduto() {
-            document.getElementById('modal-produto').classList.add('hidden');
-        }
-
-        // Funções para Modal Editar (Item)
-        function openModalItemInfo(item) {
-            document.getElementById('modal_item_id').value = item.id;
-            document.getElementById('modal_item_num').textContent = item.numero_item;
-            document.getElementById('modal_item_desc').textContent = item.descricao;
-            document.getElementById('modal_catmat').value = item.codigo_catmat || '';
-            document.getElementById('modal_qtd_licitado').value = item.quantidade;
-            document.getElementById('modal_qtd_entregue').value = item.qtd_entregue || 0;
-            document.getElementById('modal_qtd_faturada').value = item.qtd_faturada || 0;
-            document.getElementById('modal_observacao').value = item.observacao_item || '';
-            document.getElementById('modal-item-info').classList.remove('hidden');
-        }
-
-        function closeModalItemInfo() {
-            document.getElementById('modal-item-info').classList.add('hidden');
-        }
-
-        // --- FUNÇÕES PARA MODAL AFC ---
-        function openModalAddAFC(item, loteNome) {
-            document.getElementById('afc_item_id').value = item.id;
-            document.getElementById('afc_lote').textContent = loteNome !== 'SEM_LOTE' ? loteNome : 'GERAL';
-            document.getElementById('afc_item_num').textContent = 'ITEM ' + item.numero_item;
-            document.getElementById('afc_catmat').value = item.codigo_catmat || '-';
-            
-            // Formatando valor unitário
-            const valUnit = parseFloat(item.valor_unitario);
-            document.getElementById('afc_unit').value = 'R$ ' + valUnit.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-            document.getElementById('afc_unit_val').value = valUnit;
-            
-            document.getElementById('afc_qtd').value = '';
-            document.getElementById('afc_total').value = '';
-            
-            document.getElementById('modal-afc').classList.remove('hidden');
-        }
-
-        function closeModalAFC() {
-            document.getElementById('modal-afc').classList.add('hidden');
-        }
-
-        function calcTotalAFC() {
-            const qtd = parseFloat(document.getElementById('afc_qtd').value) || 0;
-            const unit = parseFloat(document.getElementById('afc_unit_val').value) || 0;
-            const total = qtd * unit;
-            document.getElementById('afc_total').value = 'R$ ' + total.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-            document.getElementById('afc_total_val').value = total;
-        }
-
-        // --- FUNÇÕES PARA MODAL CI ---
-        function openModalAddCI(item, loteNome) {
-            document.getElementById('ci_item_id').value = item.id;
-            document.getElementById('ci_lote').textContent = loteNome !== 'SEM_LOTE' ? loteNome : 'GERAL';
-            document.getElementById('ci_item_num').textContent = 'ITEM ' + item.numero_item;
-            document.getElementById('ci_catmat').value = item.codigo_catmat || '-';
-            
-            // Formatando valor unitário
-            const valUnit = parseFloat(item.valor_unitario);
-            document.getElementById('ci_unit').value = 'R$ ' + valUnit.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-            document.getElementById('ci_unit_val').value = valUnit;
-            
-            document.getElementById('ci_qtd').value = '';
-            document.getElementById('ci_total').value = '';
-
-            document.getElementById('modal-ci').classList.remove('hidden');
-        }
-
-        function closeModalCI() {
-            document.getElementById('modal-ci').classList.add('hidden');
-        }
-
-        function calcTotalCI() {
-            const qtd = parseFloat(document.getElementById('ci_qtd').value) || 0;
-            const unit = parseFloat(document.getElementById('ci_unit_val').value) || 0;
-            const total = qtd * unit;
-            document.getElementById('ci_total').value = 'R$ ' + total.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-            document.getElementById('ci_total_val').value = total;
-        }
-    </script>
+    <script src="js/consignado.js?v=1.0"></script>
 </body>
 </html>
