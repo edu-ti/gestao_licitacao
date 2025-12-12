@@ -1,4 +1,5 @@
 <?php
+ob_start(); 
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
@@ -6,25 +7,30 @@ require_once 'auth.php';
 require_once 'Database.php';
 require_once 'config.php';
 
-$mensagem = '';
-$tipo_mensagem = ''; 
+// 1. GERENCIAMENTO DE SESSÃO E MENSAGENS
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$mensagem = $_SESSION['flash_message'] ?? '';
+$tipo_mensagem = $_SESSION['flash_type'] ?? '';
+
+unset($_SESSION['flash_message']);
+unset($_SESSION['flash_type']);
+
 $pregao = null;
 $itens_agrupados = [];
 $pregoes_disponiveis = [];
 $lista_vinculados = [];
+$produtos_disponiveis_para_modal = [];
 
-// ID do pregão selecionado via GET
 $pregao_id = isset($_GET['pregao_id']) ? filter_var($_GET['pregao_id'], FILTER_VALIDATE_INT) : null;
 
 try {
     $db = new Database();
     $pdo = $db->connect();
 
-    // ---------------------------------------------------------
-    // AUTO-CONFIGURAÇÃO DO BANCO DE DADOS
-    // ---------------------------------------------------------
-    
-    // 1. Tabela de Vínculos (Consignados)
+    // --- CRIAÇÃO DE TABELAS ---
     $pdo->exec("CREATE TABLE IF NOT EXISTS consignados (
         id INT AUTO_INCREMENT PRIMARY KEY,
         pregao_id INT NOT NULL,
@@ -34,7 +40,6 @@ try {
         FOREIGN KEY (pregao_id) REFERENCES pregoes(id) ON DELETE CASCADE
     )");
 
-    // 2. Tabela de Produtos de Consignação
     $pdo->exec("CREATE TABLE IF NOT EXISTS produtos_consignacao (
         id INT AUTO_INCREMENT PRIMARY KEY,
         referencia VARCHAR(50),
@@ -43,7 +48,6 @@ try {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    // 3. Tabelas para AFC e CI (Atualizadas)
     $pdo->exec("CREATE TABLE IF NOT EXISTS afcs_consignado (
         id INT AUTO_INCREMENT PRIMARY KEY,
         item_id INT NOT NULL,
@@ -63,6 +67,8 @@ try {
         item_id INT NOT NULL,
         numero_ci VARCHAR(50) NOT NULL,
         numero_empenho VARCHAR(50),
+        numero_pedido VARCHAR(50), 
+        numero_nota_fiscal VARCHAR(50),
         qtd_solicitada INT DEFAULT 0,
         valor_total DECIMAL(15,2) DEFAULT 0,
         detalhes_produtos TEXT,
@@ -71,11 +77,21 @@ try {
         FOREIGN KEY (item_id) REFERENCES itens_pregoes(id) ON DELETE CASCADE
     )");
 
-    // ---------------------------------------------------------
-    // MIGRAÇÃO DE COLUNAS (CORREÇÃO DO ERRO)
-    // ---------------------------------------------------------
-    
-    // Verifica e cria colunas na tabela AFC se não existirem
+    // --- MIGRAÇÃO DE COLUNAS (Garante que os campos novos existam) ---
+    $colunas_ci = [
+        'numero_empenho' => 'VARCHAR(50)',
+        'numero_pedido' => 'VARCHAR(50)',
+        'numero_nota_fiscal' => 'VARCHAR(50)',
+        'qtd_solicitada' => 'INT DEFAULT 0',
+        'valor_total' => 'DECIMAL(15,2) DEFAULT 0',
+        'detalhes_produtos' => 'TEXT',
+        'observacao' => 'TEXT'
+    ];
+    foreach ($colunas_ci as $coluna => $tipo) {
+        try { $pdo->query("SELECT $coluna FROM cis_consignado LIMIT 1"); } 
+        catch (Exception $e) { $pdo->exec("ALTER TABLE cis_consignado ADD COLUMN $coluna $tipo"); }
+    }
+
     $colunas_afc = [
         'qtd_solicitada' => 'INT DEFAULT 0',
         'qtd_entregue' => 'INT DEFAULT 0',
@@ -85,30 +101,10 @@ try {
         'observacao' => 'TEXT'
     ];
     foreach ($colunas_afc as $coluna => $tipo) {
-        try {
-            $pdo->query("SELECT $coluna FROM afcs_consignado LIMIT 1");
-        } catch (Exception $e) {
-            $pdo->exec("ALTER TABLE afcs_consignado ADD COLUMN $coluna $tipo");
-        }
-    }
-    
-    // Verifica e cria colunas na tabela CI se não existirem
-    $colunas_ci = [
-        'numero_empenho' => 'VARCHAR(50)',
-        'qtd_solicitada' => 'INT DEFAULT 0',
-        'valor_total' => 'DECIMAL(15,2) DEFAULT 0',
-        'detalhes_produtos' => 'TEXT',
-        'observacao' => 'TEXT'
-    ];
-    foreach ($colunas_ci as $coluna => $tipo) {
-        try {
-            $pdo->query("SELECT $coluna FROM cis_consignado LIMIT 1");
-        } catch (Exception $e) {
-            $pdo->exec("ALTER TABLE cis_consignado ADD COLUMN $coluna $tipo");
-        }
+        try { $pdo->query("SELECT $coluna FROM afcs_consignado LIMIT 1"); } 
+        catch (Exception $e) { $pdo->exec("ALTER TABLE afcs_consignado ADD COLUMN $coluna $tipo"); }
     }
 
-    // 4. Garantir colunas na tabela itens_pregoes
     $colunas_novas = [
         'codigo_catmat' => 'VARCHAR(50)',
         'qtd_entregue' => 'INT DEFAULT 0',
@@ -116,18 +112,38 @@ try {
         'qtd_faturada' => 'INT DEFAULT 0'
     ];
     foreach ($colunas_novas as $coluna => $tipo) {
-        try {
-            $pdo->query("SELECT $coluna FROM itens_pregoes LIMIT 1");
-        } catch (Exception $e) {
-            $pdo->exec("ALTER TABLE itens_pregoes ADD COLUMN $coluna $tipo");
-        }
+        try { $pdo->query("SELECT $coluna FROM itens_pregoes LIMIT 1"); } 
+        catch (Exception $e) { $pdo->exec("ALTER TABLE itens_pregoes ADD COLUMN $coluna $tipo"); }
     }
 
-    // ---------------------------------------------------------
-    // 1. PROCESSAMENTO DE FORMULÁRIOS
-    // ---------------------------------------------------------
+    // =========================================================
+    // PROCESSAMENTO DE FORMULÁRIOS
+    // =========================================================
 
-    // Ação: SALVAR/CRIAR AFC
+    // 1. SALVAR PRODUTO
+    if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['cadastrar_produto'])) {
+        $ref = $_POST['ref_produto'] ?? '';
+        $lote = $_POST['lote_produto'] ?? '';
+        $prod = $_POST['nome_produto'] ?? '';
+        $redirect_id = isset($_GET['pregao_id']) ? $_GET['pregao_id'] : null;
+        
+        if ($prod) {
+            try {
+                $sql = "INSERT INTO produtos_consignacao (referencia, lote, produto) VALUES (?, ?, ?)";
+                $pdo->prepare($sql)->execute([$ref, $lote, $prod]);
+                $_SESSION['flash_message'] = "Produto cadastrado com sucesso!";
+                $_SESSION['flash_type'] = 'success';
+            } catch (Exception $e) {
+                $_SESSION['flash_message'] = "Erro ao cadastrar: " . $e->getMessage();
+                $_SESSION['flash_type'] = 'error';
+            }
+        }
+        $url = "consignado.php" . ($redirect_id ? "?pregao_id=$redirect_id" : "");
+        header("Location: " . $url);
+        exit;
+    }
+
+    // 2. SALVAR AFC
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['salvar_afc'])) {
         $item_id = filter_var($_POST['item_id'], FILTER_VALIDATE_INT);
         $num_afc = $_POST['numero_afc'];
@@ -135,168 +151,191 @@ try {
         $valor_raw = $_POST['valor_total_hidden'];
         $valor_limpo = str_replace(['R$', ' ', '.', ','], ['', '', '', '.'], $valor_raw);
         $valor_tot = floatval($valor_limpo);
-        
-        // Recalculo de segurança
-        if ($valor_tot <= 0 && $item_id) {
-             $stmt_item = $pdo->prepare("SELECT valor_unitario FROM itens_pregoes WHERE id = ?");
-             $stmt_item->execute([$item_id]);
-             $v_unit = $stmt_item->fetchColumn();
-             $valor_tot = $qtd * $v_unit;
-        }
-
+        $redirect_id = $_POST['pregao_id_redirect'];
         $obs = $_POST['observacao'];
         
-        // Captura os componentes do kit (Solicitados na criação)
-        $kit_components = [
+        if ($valor_tot <= 0 && $item_id) {
+             $stmt = $pdo->prepare("SELECT valor_unitario FROM itens_pregoes WHERE id = ?");
+             $stmt->execute([$item_id]);
+             $valor_tot = $qtd * $stmt->fetchColumn();
+        }
+
+        $kits = [
             'oxigenador' => $_POST['qtd_oxigenador'] ?? 0,
             'bomba' => $_POST['qtd_bomba'] ?? 0,
             'hemoconcentrador' => $_POST['qtd_hemoconcentrador'] ?? 0,
             'tubos' => $_POST['qtd_tubos'] ?? 0,
             'cardioplegia' => $_POST['qtd_cardioplegia'] ?? 0
         ];
-        $detalhes_kit = json_encode($kit_components);
-
+        
         if ($item_id && $num_afc) {
             try {
                 $sql = "INSERT INTO afcs_consignado (item_id, numero_afc, qtd_solicitada, valor_total, detalhes_kit, observacao) VALUES (?, ?, ?, ?, ?, ?)";
-                $pdo->prepare($sql)->execute([$item_id, $num_afc, $qtd, $valor_tot, $detalhes_kit, $obs]);
-                $mensagem = "AFC $num_afc cadastrada com sucesso!";
-                $tipo_mensagem = 'success';
+                $pdo->prepare($sql)->execute([$item_id, $num_afc, $qtd, $valor_tot, json_encode($kits), $obs]);
+                $_SESSION['flash_message'] = "AFC salva!";
+                $_SESSION['flash_type'] = 'success';
             } catch (Exception $e) {
-                $mensagem = "Erro ao salvar AFC: " . $e->getMessage();
-                $tipo_mensagem = 'error';
+                $_SESSION['flash_message'] = "Erro: " . $e->getMessage();
+                $_SESSION['flash_type'] = 'error';
             }
         }
-        $pregao_id = $_POST['pregao_id_redirect'];
+        header("Location: consignado.php?pregao_id=" . $redirect_id);
+        exit;
     }
 
-    // Ação: ATUALIZAR DETALHES DA AFC (Atualizado para salvar kits manuais)
+    // 3. ATUALIZAR DETALHES AFC
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['atualizar_detalhes_afc'])) {
         $afc_id = filter_var($_POST['afc_id'], FILTER_VALIDATE_INT);
         $qtd_entregue = intval($_POST['qtd_entregue']);
         $obs = $_POST['observacao'];
+        $redirect_id = $_POST['pregao_id_redirect'];
         
-        // Captura os dados dos kits entregues manualmente
-        $kits_entregues = [
+        $kits = [
             'oxigenador' => $_POST['kit_entregue_oxigenador'] ?? 0,
             'bomba' => $_POST['kit_entregue_bomba'] ?? 0,
             'hemoconcentrador' => $_POST['kit_entregue_hemoconcentrador'] ?? 0,
             'tubos' => $_POST['kit_entregue_tubos'] ?? 0,
             'cardioplegia' => $_POST['kit_entregue_cardioplegia'] ?? 0
         ];
-        $detalhes_entregue_json = json_encode($kits_entregues);
         
         if ($afc_id) {
             try {
                 $sql = "UPDATE afcs_consignado SET qtd_entregue = ?, detalhes_entregue = ?, observacao = ? WHERE id = ?";
-                $pdo->prepare($sql)->execute([$qtd_entregue, $detalhes_entregue_json, $obs, $afc_id]);
-                
-                $mensagem = "Detalhes da AFC atualizados com sucesso!";
-                $tipo_mensagem = 'success';
+                $pdo->prepare($sql)->execute([$qtd_entregue, json_encode($kits), $obs, $afc_id]);
+                $_SESSION['flash_message'] = "AFC atualizada!";
+                $_SESSION['flash_type'] = 'success';
             } catch (Exception $e) {
-                $mensagem = "Erro ao atualizar AFC: " . $e->getMessage();
-                $tipo_mensagem = 'error';
+                $_SESSION['flash_message'] = "Erro: " . $e->getMessage();
+                $_SESSION['flash_type'] = 'error';
             }
         }
-        $pregao_id = $_POST['pregao_id_redirect'];
+        header("Location: consignado.php?pregao_id=" . $redirect_id);
+        exit;
     }
 
-    // Ação: SALVAR CI
+    // 4. SALVAR CI
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['salvar_ci'])) {
         $item_id = filter_var($_POST['item_id'], FILTER_VALIDATE_INT);
         $num_ci = $_POST['numero_ci'];
         $num_empenho = $_POST['numero_empenho'];
+        $num_pedido = $_POST['numero_pedido'] ?? '';
+        $num_nf = $_POST['numero_nota_fiscal'] ?? '';
         $qtd = intval($_POST['qtd_solicitada']);
         $valor_raw = $_POST['valor_total_hidden'];
         $valor_limpo = str_replace(['R$', ' ', '.', ','], ['', '', '', '.'], $valor_raw);
         $valor_tot = floatval($valor_limpo);
         $obs = $_POST['observacao'];
+        $detalhes_produtos = $_POST['detalhes_produtos'] ?? '';
+        $redirect_id = $_POST['pregao_id_redirect'];
         
         if ($item_id && $num_ci) {
             try {
-                $sql = "INSERT INTO cis_consignado (item_id, numero_ci, numero_empenho, qtd_solicitada, valor_total, observacao) VALUES (?, ?, ?, ?, ?, ?)";
-                $pdo->prepare($sql)->execute([$item_id, $num_ci, $num_empenho, $qtd, $valor_tot, $obs]);
-                $mensagem = "CI $num_ci cadastrada com sucesso!";
-                $tipo_mensagem = 'success';
+                $sql = "INSERT INTO cis_consignado (item_id, numero_ci, numero_empenho, numero_pedido, numero_nota_fiscal, qtd_solicitada, valor_total, observacao, detalhes_produtos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                $pdo->prepare($sql)->execute([$item_id, $num_ci, $num_empenho, $num_pedido, $num_nf, $qtd, $valor_tot, $obs, $detalhes_produtos]);
+                $_SESSION['flash_message'] = "CI salva com sucesso!";
+                $_SESSION['flash_type'] = 'success';
             } catch (Exception $e) {
-                $mensagem = "Erro ao salvar CI: " . $e->getMessage();
-                $tipo_mensagem = 'error';
+                $_SESSION['flash_message'] = "Erro na CI: " . $e->getMessage();
+                $_SESSION['flash_type'] = 'error';
             }
         }
-        $pregao_id = $_POST['pregao_id_redirect'];
+        header("Location: consignado.php?pregao_id=" . $redirect_id);
+        exit;
     }
 
-    // Ação: ATUALIZAR ITEM
+    // 5. ATUALIZAR DETALHES CI (ATUALIZADO PARA INCLUIR PEDIDO E NF)
+    if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['atualizar_detalhes_ci'])) {
+        $ci_id = filter_var($_POST['ci_id'], FILTER_VALIDATE_INT);
+        $num_empenho = $_POST['numero_empenho'];
+        $num_pedido = $_POST['numero_pedido'];
+        $num_nf = $_POST['numero_nota_fiscal'];
+        $obs = $_POST['observacao'];
+        $detalhes_produtos = $_POST['detalhes_produtos'] ?? '';
+        $redirect_id = $_POST['pregao_id_redirect'];
+
+        if ($ci_id) {
+            try {
+                $sql = "UPDATE cis_consignado SET numero_empenho = ?, numero_pedido = ?, numero_nota_fiscal = ?, observacao = ?, detalhes_produtos = ? WHERE id = ?";
+                $pdo->prepare($sql)->execute([$num_empenho, $num_pedido, $num_nf, $obs, $detalhes_produtos, $ci_id]);
+                $_SESSION['flash_message'] = "CI atualizada!";
+                $_SESSION['flash_type'] = 'success';
+            } catch (Exception $e) {
+                $_SESSION['flash_message'] = "Erro: " . $e->getMessage();
+                $_SESSION['flash_type'] = 'error';
+            }
+        }
+        header("Location: consignado.php?pregao_id=" . $redirect_id);
+        exit;
+    }
+
+    // 6. ATUALIZAR ITEM
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['atualizar_item_consignado'])) {
         $item_id = filter_var($_POST['item_id'], FILTER_VALIDATE_INT);
         $catmat = $_POST['codigo_catmat'] ?? '';
         $q_entregue = intval($_POST['qtd_entregue']);
         $q_faturada = intval($_POST['qtd_faturada']);
         $obs_item = $_POST['observacao_item'] ?? '';
+        $redirect_id = $_POST['pregao_id_redirect'];
 
         if ($item_id) {
             try {
-                $sql_update_item = "UPDATE itens_pregoes SET codigo_catmat = ?, qtd_entregue = ?, qtd_faturada = ?, observacao_item = ? WHERE id = ?";
-                $stmt_upd = $pdo->prepare($sql_update_item);
-                $stmt_upd->execute([$catmat, $q_entregue, $q_faturada, $obs_item, $item_id]);
-                
-                $mensagem = "Item atualizado com sucesso!";
-                $tipo_mensagem = 'success';
-                $pregao_id = $_POST['pregao_id_redirect'] ?? $pregao_id;
+                $sql = "UPDATE itens_pregoes SET codigo_catmat = ?, qtd_entregue = ?, qtd_faturada = ?, observacao_item = ? WHERE id = ?";
+                $pdo->prepare($sql)->execute([$catmat, $q_entregue, $q_faturada, $obs_item, $item_id]);
+                $_SESSION['flash_message'] = "Item atualizado!";
+                $_SESSION['flash_type'] = 'success';
             } catch (Exception $e) {
-                $mensagem = "Erro ao atualizar: " . $e->getMessage();
-                $tipo_mensagem = 'error';
+                $_SESSION['flash_message'] = "Erro: " . $e->getMessage();
+                $_SESSION['flash_type'] = 'error';
             }
         }
+        header("Location: consignado.php?pregao_id=" . $redirect_id);
+        exit;
     }
 
-    // Ação: VINCULAR PREGÃO
+    // 7. VINCULAR PREGÃO
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['vincular_consignado'])) {
         $p_id = $_POST['pregao_id_hidden'];
         $n_contrato = $_POST['numero_contrato'];
         $u_id = $_SESSION['user_id'];
 
         try {
-            $stmt_check = $pdo->prepare("SELECT id FROM consignados WHERE pregao_id = ?");
-            $stmt_check->execute([$p_id]);
+            $check = $pdo->prepare("SELECT id FROM consignados WHERE pregao_id = ?");
+            $check->execute([$p_id]);
             
-            if ($stmt_check->rowCount() > 0) {
-                $sql_update = "UPDATE consignados SET numero_contrato = ? WHERE pregao_id = ?";
-                $pdo->prepare($sql_update)->execute([$n_contrato, $p_id]);
-                $mensagem = "Vínculo atualizado! Contrato: " . htmlspecialchars($n_contrato);
+            if ($check->rowCount() > 0) {
+                $pdo->prepare("UPDATE consignados SET numero_contrato = ? WHERE pregao_id = ?")->execute([$n_contrato, $p_id]);
+                $_SESSION['flash_message'] = "Contrato atualizado!";
             } else {
-                $sql_insert = "INSERT INTO consignados (pregao_id, numero_contrato, created_by_user_id) VALUES (?, ?, ?)";
-                $pdo->prepare($sql_insert)->execute([$p_id, $n_contrato, $u_id]);
-                $mensagem = "Pregão vinculado! Contrato Nº " . htmlspecialchars($n_contrato);
+                $pdo->prepare("INSERT INTO consignados (pregao_id, numero_contrato, created_by_user_id) VALUES (?, ?, ?)")->execute([$p_id, $n_contrato, $u_id]);
+                $_SESSION['flash_message'] = "Pregão vinculado!";
             }
-            $tipo_mensagem = 'success';
-            $pregao_id = null; 
+            $_SESSION['flash_type'] = 'success';
         } catch (Exception $e) {
-            $mensagem = "Erro ao vincular: " . $e->getMessage();
-            $tipo_mensagem = 'error';
+            $_SESSION['flash_message'] = "Erro: " . $e->getMessage();
+            $_SESSION['flash_type'] = 'error';
         }
+        header("Location: consignado.php?pregao_id=" . $p_id); 
+        exit;
     }
 
-    // Ação: EXCLUIR VÍNCULO
+    // 8. EXCLUIR VÍNCULO
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['excluir_consignado_id'])) {
         $id_excluir = intval($_POST['excluir_consignado_id']);
         try {
             $pdo->prepare("DELETE FROM consignados WHERE id = ?")->execute([$id_excluir]);
-            $mensagem = "Vínculo excluído com sucesso!";
-            $tipo_mensagem = 'success';
+            $_SESSION['flash_message'] = "Vínculo excluído!";
+            $_SESSION['flash_type'] = 'success';
         } catch (Exception $e) {
-            $mensagem = "Erro ao excluir: " . $e->getMessage();
-            $tipo_mensagem = 'error';
+            $_SESSION['flash_message'] = "Erro: " . $e->getMessage();
+            $_SESSION['flash_type'] = 'error';
         }
+        header("Location: consignado.php");
+        exit;
     }
 
-    // ---------------------------------------------------------
-    // BUSCAR DADOS
-    // ---------------------------------------------------------
-
-    $stmt_lista = $pdo->query("SELECT id, numero_edital, orgao_comprador FROM pregoes ORDER BY created_at DESC");
-    $pregoes_disponiveis = $stmt_lista->fetchAll(PDO::FETCH_ASSOC);
-
+    // --- LEITURA DE DADOS ---
+    $produtos_disponiveis_para_modal = $pdo->query("SELECT * FROM produtos_consignacao ORDER BY produto ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $pregoes_disponiveis = $pdo->query("SELECT id, numero_edital, orgao_comprador FROM pregoes ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
     $sql_vinculados = "SELECT c.id as consignado_id, c.numero_contrato, c.created_at as data_vinculo, p.id as pregao_id, p.numero_edital, p.numero_processo, p.orgao_comprador, p.status FROM consignados c JOIN pregoes p ON c.pregao_id = p.id ORDER BY c.created_at DESC";
     $lista_vinculados = $pdo->query($sql_vinculados)->fetchAll(PDO::FETCH_ASSOC);
 
@@ -320,13 +359,11 @@ try {
             );
             $stmt_itens->execute([$pregao_id]);
             foreach ($stmt_itens->fetchAll(PDO::FETCH_ASSOC) as $item) {
-                // Recupera AFCs completas
                 $stmt_afc = $pdo->prepare("SELECT * FROM afcs_consignado WHERE item_id = ? ORDER BY created_at DESC");
                 $stmt_afc->execute([$item['id']]);
                 $item['afcs'] = $stmt_afc->fetchAll(PDO::FETCH_ASSOC);
 
-                // Recupera CIs
-                $stmt_ci = $pdo->prepare("SELECT numero_ci, numero_empenho, qtd_solicitada FROM cis_consignado WHERE item_id = ? ORDER BY created_at DESC");
+                $stmt_ci = $pdo->prepare("SELECT * FROM cis_consignado WHERE item_id = ? ORDER BY created_at DESC");
                 $stmt_ci->execute([$item['id']]);
                 $item['cis'] = $stmt_ci->fetchAll(PDO::FETCH_ASSOC);
 
@@ -351,7 +388,6 @@ try {
     <link rel="stylesheet" href="css/style.css?v=2.35">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="css/consignado.css?v=1.0"> 
-   
 </head>
 <body class="bg-[#d9e3ec] p-4 sm:p-8">
     <div class="container mx-auto bg-white p-4 sm:p-8 rounded-lg shadow-lg">
@@ -401,7 +437,6 @@ try {
             <form method="POST" action="consignado.php" id="form-vincular">
                 <input type="hidden" name="pregao_id_hidden" value="<?php echo $pregao['id']; ?>">
 
-                <!-- Info do Pregão -->
                 <div class="mb-8 p-6 bg-[#f7f6f6] rounded-lg border">
                     <h3 class="text-xl font-bold text-gray-700 mb-4 border-b pb-2">Informações do Pregão</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 text-gray-700 text-sm">
@@ -451,18 +486,14 @@ try {
                                             </thead>
                                             <tbody>
                                                 <?php foreach ($itens_do_lote as $item): 
-                                                    // CÁLCULOS DINÂMICOS
                                                     $qtd_total = $item['quantidade'];
                                                     $qtd_entregue = $item['qtd_entregue'] ?? 0;
                                                     $valor_unit = $item['valor_unitario'];
                                                     $saldo_rest_licitado = $qtd_total - $qtd_entregue;
-
-                                                    // Fórmulas
                                                     $valor_cons_faturado = $valor_unit * $qtd_entregue;
                                                     $valor_cons_a_faturar = $valor_unit * $saldo_rest_licitado;
                                                     $valor_total = $qtd_total * $valor_unit;
                                                 ?>
-                                                    <!-- LINHA PRINCIPAL -->
                                                     <tr class="table-row-custom hover:bg-gray-50">
                                                         <td class="font-bold"><?php echo htmlspecialchars($item['numero_item']); ?></td>
                                                         <td class="text-xs text-gray-500 font-mono"><?php echo htmlspecialchars($item['codigo_catmat'] ?? '-'); ?></td>
@@ -481,7 +512,6 @@ try {
                                                         <td class="text-right whitespace-nowrap font-bold bg-gray-50">R$ <?php echo number_format($valor_total, 2, ',', '.'); ?></td>
                                                     </tr>
                                                     
-                                                    <!-- LINHA DE AÇÃO -->
                                                     <tr class="row-action">
                                                         <td colspan="10">
                                                             <div class="flex justify-between items-center w-full">
@@ -500,17 +530,12 @@ try {
                                                         </td>
                                                     </tr>
 
-                                                    <!-- LINHA DE AFCs -->
                                                     <tr class="row-details">
                                                         <td colspan="10" class="text-left">
                                                             <span class="detail-label">AFC:</span>
                                                             <?php if (!empty($item['afcs'])): ?>
                                                                 <?php foreach ($item['afcs'] as $afc): ?>
-                                                                    <!-- CLIQUE PARA ABRIR NOVO MODAL DE DETALHES -->
-                                                                    <span class="badge-afc" 
-                                                                          onclick='openModalDetalhesAFC(<?php echo json_encode($afc); ?>, <?php echo json_encode($item); ?>, "<?php echo $lote_nome; ?>")'>
-                                                                        <?php echo htmlspecialchars($afc['numero_afc']); ?>
-                                                                    </span>
+                                                                    <span class="badge-afc" onclick='openModalDetalhesAFC(<?php echo json_encode($afc); ?>, <?php echo json_encode($item); ?>, "<?php echo $lote_nome; ?>")'><?php echo htmlspecialchars($afc['numero_afc']); ?></span>
                                                                 <?php endforeach; ?>
                                                             <?php else: ?>
                                                                 <span class="text-gray-400 italic font-normal text-xs">Nenhuma AFC cadastrada</span>
@@ -518,13 +543,12 @@ try {
                                                         </td>
                                                     </tr>
 
-                                                    <!-- LINHA DE CIs -->
                                                     <tr class="row-details">
                                                         <td colspan="10" class="text-left">
                                                             <span class="detail-label">CI &nbsp;&nbsp;&nbsp;</span>
                                                             <?php if (!empty($item['cis'])): ?>
                                                                 <?php foreach ($item['cis'] as $ci): ?>
-                                                                    <span class="detail-item" title="Empenho: <?php echo htmlspecialchars($ci['numero_empenho']); ?>">
+                                                                    <span class="detail-item" onclick='openModalDetalhesCI(<?php echo json_encode($ci); ?>, <?php echo json_encode($item); ?>, "<?php echo $lote_nome; ?>")' title="Empenho: <?php echo htmlspecialchars($ci['numero_empenho']); ?>">
                                                                         <?php echo htmlspecialchars($ci['numero_ci']); ?>
                                                                     </span>
                                                                 <?php endforeach; ?>
@@ -549,7 +573,6 @@ try {
                     </button>
                 </div>
                 
-                <!-- Modal Vincular -->
                 <div id="modal-vincular" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm">
                     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg">
                         <div class="flex justify-between items-center mb-6 border-b pb-4">
@@ -565,9 +588,7 @@ try {
                                 <label for="numero_contrato" class="block text-sm font-bold text-gray-700 mb-2">Número do Contrato *</label>
                                 <div class="flex gap-2">
                                     <div class="relative w-full">
-                                        <input type="text" name="numero_contrato" id="numero_contrato" 
-                                               class="w-full pl-4 pr-10 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" 
-                                               value="<?php echo htmlspecialchars($valor_contrato_inicial); ?>" readonly required>
+                                        <input type="text" name="numero_contrato" id="numero_contrato" class="w-full pl-4 pr-10 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" value="<?php echo htmlspecialchars($valor_contrato_inicial); ?>" readonly required>
                                     </div>
                                     <button type="button" onclick="enableEditContrato()" class="btn btn-primary px-4 py-3" title="Editar manualmente">Editar</button>
                                 </div>
@@ -582,7 +603,6 @@ try {
 
             </form>
         <?php else: ?>
-            <!-- Lista de Vinculados -->
             <div class="mt-8">
                 <div class="flex items-center gap-2 mb-6">
                     <h3 class="text-xl font-bold text-gray-700">Órgãos/Pregões já Vinculados</h3>
@@ -638,16 +658,12 @@ try {
                 <h3 class="text-xl font-bold text-gray-800">Cadastro de Produto</h3>
                 <button type="button" onclick="closeModalProduto()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
             </div>
-            <form method="POST" action="consignado.php">
+            <form method="POST" action="consignado.php<?php echo $pregao_id ? '?pregao_id='.$pregao_id : ''; ?>">
                 <div class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">REF.</label>
                         <input type="text" name="ref_produto" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required>
                     </div>
-                    <!--<div>-->
-                    <!--    <label class="block text-sm font-medium text-gray-700 mb-1">LOTE</label>-->
-                    <!--    <input type="text" name="lote_produto" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required>-->
-                    <!--</div>-->
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">PRODUTO</label>
                         <input type="text" name="nome_produto" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Descrição do produto" required>
@@ -669,12 +685,12 @@ try {
                 <input type="hidden" name="atualizar_item_consignado" value="1"><input type="hidden" name="item_id" id="modal_item_id"><input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
                 <div class="bg-gray-50 p-4 rounded-lg border mb-6"><p class="text-sm font-bold text-gray-600">ITEM <span id="modal_item_num"></span></p><p class="text-md text-gray-900 font-medium mt-1" id="modal_item_desc"></p></div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">E-fisco / CATMAT</label><input type="text" name="codigo_catmat" id="modal_catmat" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">QTD Total Licitado</label><input type="text" id="modal_qtd_licitado" class="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-500" readonly></div>
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">CONS Entregue</label><input type="number" name="qtd_entregue" id="modal_qtd_entregue" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">QTD Faturada</label><input type="number" name="qtd_faturada" id="modal_qtd_faturada" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">E-fisco / CATMAT</label><input type="text" name="codigo_catmat" id="modal_catmat" class="w-64 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">QTD Total Licitado</label><input type="text" id="modal_qtd_licitado" class="w-64 px-3 py-2 border rounded-lg bg-gray-100 text-gray-500" readonly></div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">CONS Entregue</label><input type="number" name="qtd_entregue" id="modal_qtd_entregue" class="w-64 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">QTD Faturada</label><input type="number" name="qtd_faturada" id="modal_qtd_faturada" class="w-64 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
                 </div>
-                <div class="mb-6"><label class="block text-sm font-bold text-gray-700 mb-1">Observação</label><textarea name="observacao_item" id="modal_observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre o item..."></textarea></div>
+                <div class="mb-6"><label class="block text-sm font-bold text-gray-700 mb-1">Observação</label><textarea name="observacao_item" id="modal_observacao" rows="3" class="w-64 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre o item..."></textarea></div>
                 <div class="flex justify-end gap-3 pt-4 border-t"><button type="button" onclick="closeModalItemInfo()" class="btn btn-secondary px-6">Cancelar</button><button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">Salvar Alterações</button></div>
             </form>
         </div>
@@ -694,15 +710,15 @@ try {
                         <div><label class="form-label">VALOR UNITÁRIO DO ITEM</label><input type="text" id="afc_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly><input type="hidden" id="afc_unit_val"></div>
                         <div><label class="form-label">VALOR TOTAL DO ITEM</label><input type="text" id="afc_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly><input type="hidden" name="valor_total_hidden" id="afc_total_val"></div>
                     </div>
-                    <div class="space-y-4">
-                         <div class="flex items-center gap-2 mb-2"><label class="form-label mb-0">AFC Nº</label><input type="text" name="numero_afc" class="flex-grow px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required></div>
+                    <div class="space-y-2">
+                         <div class="flex items-center gap-2 mb-2"><label class="form-label mb-0">AFC Nº</label><input type="text" name="numero_afc" class="w-32 px-2 py-1 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required></div>
                          <div class="kit-section"><h4 class="kit-title">ENTREGAR KITS</h4>
-                             <div class="grid grid-cols-[1fr_80px_80px_80px] gap-y-2 items-center text-sm">
-                                 <input type="number" name="qtd_oxigenador" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">OXIGENADOR</span>
-                                 <input type="number" name="qtd_bomba" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">BOMBA CENTRÍFUGA</span>
-                                 <input type="number" name="qtd_hemoconcentrador" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">HEMOCONCENTRADOR</span>
-                                 <input type="number" name="qtd_tubos" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">CONJUNTO DE TUBOS</span>
-                                 <input type="number" name="qtd_cardioplegia" class="w-full px-2 py-1 border rounded text-center"><span class="font-semibold text-gray-700">CARDIOPLEGIA CRISTALOIDE</span>
+                             <div class="grid grid-cols-[1fr_80p_80p_80p] gap-x-2 gap-y-2 items-center text-sm">
+                                 <span class="font-semibold text-gray-700">OXIGENADOR</span><input type="number" name="qtd_oxigenador" class="w-80 px-2 py-1 border rounded text-center">
+                                 <span class="font-semibold text-gray-700">BOMBA CENTRÍFUGA</span><input type="number" name="qtd_bomba" class="w-80 px-2 py-1 border rounded text-center">
+                                 <span class="font-semibold text-gray-700">HEMOCONCENTRADOR</span><input type="number" name="qtd_hemoconcentrador" class="w-80 px-2 py-1 border rounded text-center">
+                                 <span class="font-semibold text-gray-700">CONJUNTO DE TUBOS</span><input type="number" name="qtd_tubos" class="w-80 px-2 py-1 border rounded text-center">
+                                 <span class="font-semibold text-gray-700">CARDIOPLEGIA CRISTALOIDE</span><input type="number" name="qtd_cardioplegia" class="w-80 px-2 py-1 border rounded text-center">
                              </div>
                          </div>
                     </div>
@@ -713,15 +729,23 @@ try {
         </div>
     </div>
 
-    <!-- MODAL ADICIONAR CI -->
+    <!-- MODAL ADICIONAR CI (ATUALIZADO COM PEDIDO E NF) -->
     <div id="modal-ci" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl my-10">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-8xl my-10">
             <div class="modal-header"><h3 class="modal-title">ADICIONAR CI</h3><button type="button" onclick="closeModalCI()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button></div>
             <form method="POST" action="consignado.php" id="form-ci">
                 <input type="hidden" name="salvar_ci" value="1"><input type="hidden" name="item_id" id="ci_item_id"><input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
+                <input type="hidden" name="detalhes_produtos" id="ci_detalhes_produtos">
+
                 <div class="flex justify-between items-center mb-6">
                      <div class="flex"><span class="tag-badge" id="ci_lote">LOTE 01</span><span class="tag-badge" id="ci_item_num">ITEM 01</span></div>
-                     <div class="flex gap-4"><div class="flex items-center gap-2"><label class="form-label mb-0">CI Nº</label><input type="text" name="numero_ci" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required></div><div class="flex items-center gap-2"><label class="form-label mb-0">EMPENHO Nº</label><input type="text" name="numero_empenho" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div></div>
+                     <!-- CAMPOS GLOBAIS NO TOPO -->
+                     <div class="flex gap-2 items-end flex-wrap">
+                         <div class="flex flex-col"><label class="form-label mb-1">CI Nº</label><input type="text" name="numero_ci" class="w-24 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" required></div>
+                         <div class="flex flex-col"><label class="form-label mb-1">EMPENHO</label><input type="text" name="numero_empenho" class="w-24 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                         <div class="flex flex-col"><label class="form-label mb-1">PEDIDO</label><input type="text" name="numero_pedido" class="w-24 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                         <div class="flex flex-col"><label class="form-label mb-1">NF</label><input type="text" name="numero_nota_fiscal" class="w-24 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                     </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div class="space-y-4">
@@ -731,8 +755,22 @@ try {
                         <div><label class="form-label">VALOR TOTAL DO ITEM</label><input type="text" id="ci_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly><input type="hidden" name="valor_total_hidden" id="ci_total_val"></div>
                     </div>
                     <div class="space-y-4">
-                        <div class="flex justify-center my-4"><button type="button" class="btn btn-outline border-blue-500 text-blue-600 w-full font-bold">+ PRODUTOS</button></div>
-                        <div class="border rounded-lg h-40 overflow-y-auto p-2 bg-gray-50 text-xs text-gray-500"><table class="w-full text-left"><thead><tr class="border-b"><th class="pb-1">PRODUTOS</th><th class="pb-1">LOTE</th><th class="pb-1">REF.</th></tr></thead><tbody id="ci_produtos_list"><tr><td>OXIG. DE MEMB. ADULTO</td><td>-</td><td>-</td></tr></tbody></table></div>
+                        <div class="flex justify-center my-4"><button type="button" class="btn btn-outline border-blue-500 text-blue-600 w-full font-bold" onclick="openModalSelecionarProdutos()">+ PRODUTOS</button></div>
+                        <div class="border rounded-lg h-40 overflow-y-auto p-2 bg-gray-50 text-xs text-gray-500">
+                            <table class="w-full text-left table-fixed">
+                                <thead>
+                                    <tr class="border-b bg-gray-100">
+                                        <th class="pb-2 pt-2 pl-2 w-8/12 font-semibold text-gray-600">PRODUTO</th>
+                                        <th class="pb-2 pt-2 w-2/12 font-semibold text-gray-600">REF.</th>
+                                        <th class="pb-2 pt-2 w-3/12 font-semibold text-gray-600">LOTE</th>
+                                        <th class="pb-2 pt-2 pr-2 w-1/12 text-center font-semibold text-gray-600">AÇÃO</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ci_produtos_list">
+                                    <!-- Os produtos serão inseridos aqui via JS -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
                 <div class="mb-6"><label class="form-label">Observação</label><textarea name="observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações relevantes sobre a CI..."></textarea></div>
@@ -741,140 +779,142 @@ try {
         </div>
     </div>
 
-    <!-- ============================================= -->
-    <!-- NOVO MODAL: DETALHES AFC (COMPLETO E FUNCIONAL) -->
-    <!-- ============================================= -->
-    <div id="modal-detalhes-afc" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl my-10">
-            <div class="modal-header">
-                <h3 class="modal-title">DETALHES AFC</h3>
-                <button type="button" onclick="closeModalDetalhesAFC()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
+    <!-- MODAL SELECIONAR PRODUTOS -->
+    <div id="modal-selecionar-produtos" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-3xl h-[80vh] flex flex-col">
+            <div class="flex justify-between items-center mb-4 border-b pb-4">
+                <h3 class="text-xl font-bold text-gray-800">Selecionar Produtos</h3>
+                <button type="button" onclick="closeModalSelecionarProdutos()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
             </div>
-            
+            <div class="overflow-y-auto flex-grow">
+                <table class="min-w-full text-sm text-left text-gray-500">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3">Ref.</th>
+                            <th class="px-4 py-3">Produto</th>
+                            <th class="px-4 py-3 text-center">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($produtos_disponiveis_para_modal as $prod): ?>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="px-4 py-3 font-mono"><?php echo htmlspecialchars($prod['referencia']); ?></td>
+                            <td class="px-4 py-3"><?php echo htmlspecialchars($prod['produto']); ?></td>
+                            <td class="px-4 py-3 text-center">
+                                <button type="button" onclick='adicionarProdutoAoCI(<?php echo json_encode($prod); ?>)' class="btn btn-sm btn-primary bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+                                    Adicionar
+                                </button>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php if (empty($produtos_disponiveis_para_modal)): ?>
+                        <tr><td colspan="3" class="text-center py-4">Nenhum produto cadastrado.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-4 pt-4 border-t flex justify-end">
+                <button type="button" onclick="closeModalSelecionarProdutos()" class="btn btn-secondary px-4 py-2 border rounded hover:bg-gray-100">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- MODAL DETALHES AFC -->
+    <div id="modal-detalhes-afc" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-7xl my-10">
+            <div class="modal-header"><h3 class="modal-title">DETALHES AFC</h3><button type="button" onclick="closeModalDetalhesAFC()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button></div>
             <form method="POST" action="consignado.php" id="form-detalhes-afc">
-                <input type="hidden" name="atualizar_detalhes_afc" value="1">
-                <input type="hidden" name="afc_id" id="det_afc_id">
-                <input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
-                
-                <!-- Header Info -->
+                <input type="hidden" name="atualizar_detalhes_afc" value="1"><input type="hidden" name="afc_id" id="det_afc_id"><input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
                 <div class="flex justify-between items-start mb-6">
-                    <div class="flex flex-col gap-2">
-                        <div class="flex"><span class="tag-badge" id="det_lote">LOTE 01</span><span class="tag-badge" id="det_item_num">ITEM 01</span></div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                         <label class="form-label mb-0 text-lg">AFC Nº</label>
-                         <input type="text" id="det_numero_afc" class="w-32 px-3 py-2 border rounded-lg bg-gray-100 text-gray-700 font-bold text-center" readonly>
-                    </div>
+                    <div class="flex flex-col gap-2"><div class="flex"><span class="tag-badge" id="det_lote">LOTE 01</span><span class="tag-badge" id="det_item_num">ITEM 01</span></div></div>
+                    <div class="flex items-center gap-2"><label class="form-label mb-0 text-lg">AFC Nº</label><input type="text" id="det_numero_afc" class="w-32 px-3 py-2 border rounded-lg bg-gray-100 text-gray-700 font-bold text-center" readonly></div>
                 </div>
-
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
-                    <!-- Coluna Esquerda: Dados Principais -->
                     <div class="space-y-4">
-                        <div>
-                            <label class="form-label">E-fisco / CATMAT</label>
-                            <input type="text" id="det_catmat" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
-                        </div>
-                        <div>
-                            <label class="form-label">QTD SOLICITADA</label>
-                            <input type="number" id="det_qtd_solicitada" class="w-full px-3 py-2 border rounded-lg form-input-readonly font-bold" readonly>
-                        </div>
-                        
-                        <!-- Campos de Entrega -->
+                        <div><label class="form-label">E-fisco / CATMAT</label><input type="text" id="det_catmat" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly></div>
+                        <div><label class="form-label">QTD SOLICITADA</label><input type="number" id="det_qtd_solicitada" class="w-full px-3 py-2 border rounded-lg form-input-readonly font-bold" readonly></div>
                         <div class="bg-blue-50 p-4 rounded-lg border border-blue-100 space-y-3">
-                            <div>
-                                <label class="form-label text-blue-800">QTD ENTREGUE <span class="text-xs font-normal lowercase">(Inserido Manualmente)</span></label>
-                                <input type="number" name="qtd_entregue" id="det_qtd_entregue" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-900" oninput="calcDetalhesAFC()">
-                            </div>
-                            <div>
-                                <label class="form-label text-red-600">FALTA ENTREGAR <span class="text-xs font-normal lowercase">(Calculado)</span></label>
-                                <input type="number" id="det_falta_entregar" class="w-full px-3 py-2 border rounded-lg bg-red-50 text-red-700 font-bold" readonly>
-                            </div>
+                            <div><label class="form-label text-blue-800">QTD ENTREGUE <span class="text-xs font-normal lowercase">(Inserido Manualmente)</span></label><input type="number" name="qtd_entregue" id="det_qtd_entregue" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-900" oninput="calcDetalhesAFC()"></div>
+                            <div><label class="form-label text-red-600">FALTA ENTREGAR <span class="text-xs font-normal lowercase">(Calculado)</span></label><input type="number" id="det_falta_entregar" class="w-full px-3 py-2 border rounded-lg bg-red-50 text-red-700 font-bold" readonly></div>
                         </div>
-
-                        <div>
-                            <label class="form-label">VALOR UNITÁRIO DO ITEM</label>
-                            <input type="text" id="det_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly>
-                            <input type="hidden" id="det_unit_val">
-                        </div>
-                        <div>
-                            <label class="form-label">VALOR TOTAL DO ITEM</label>
-                            <input type="text" id="det_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly font-bold" readonly>
-                        </div>
+                        <div><label class="form-label">VALOR UNITÁRIO DO ITEM</label><input type="text" id="det_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly><input type="hidden" id="det_unit_val"></div>
+                        <div><label class="form-label">VALOR TOTAL DO ITEM</label><input type="text" id="det_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly font-bold" readonly></div>
                     </div>
-
-                    <!-- Coluna Direita: Kits e Componentes -->
                     <div class="space-y-4">
                          <div class="kit-section bg-white border-gray-200">
-                             <div class="flex justify-between items-center border-b pb-2 mb-3">
-                                <h4 class="kit-title mb-0">DETALHAMENTO KITS</h4>
-                                <span class="text-xs text-gray-500">Qtd Entregue editável manualmente</span>
-                             </div>
-                             
-                             <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center text-xs font-semibold text-gray-600 text-center uppercase mb-2">
-                                <div class="text-left">Componente</div>
-                                <div>Entregar</div>
-                                <div>Entregue</div>
-                                <div>Falta</div>
-                             </div>
-
+                             <div class="flex justify-between items-center border-b pb-2 mb-3"><h4 class="kit-title mb-0">DETALHAMENTO KITS</h4><span class="text-xs text-gray-500">Qtd Entregue editável manualmente</span></div>
+                             <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center text-xs font-semibold text-gray-600 text-center uppercase mb-2"><div class="text-left">Componente</div><div>Entregar</div><div>Entregue</div><div>Falta</div></div>
                              <div id="det_kit_container" class="space-y-2 text-sm">
-                                 <!-- OXIGENADOR -->
-                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
-                                     <span class="text-gray-800 font-medium truncate" title="OXIGENADOR">OXIGENADOR</span>
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_oxigenador" readonly>
-                                     <input type="number" name="kit_entregue_oxigenador" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_oxigenador" oninput="calcFaltaComponente(this)">
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_oxigenador" readonly>
-                                 </div>
-                                 
-                                 <!-- BOMBA CENTRIFUGA -->
-                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
-                                     <span class="text-gray-800 font-medium truncate" title="BOMBA CENTRIFUGA">BOMBA CENT.</span>
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_bomba" readonly>
-                                     <input type="number" name="kit_entregue_bomba" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_bomba" oninput="calcFaltaComponente(this)">
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_bomba" readonly>
-                                 </div>
-
-                                 <!-- HEMOCONCENTRADOR -->
-                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
-                                     <span class="text-gray-800 font-medium truncate">HEMOCONC.</span>
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_hemoconcentrador" readonly>
-                                     <input type="number" name="kit_entregue_hemoconcentrador" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_hemoconcentrador" oninput="calcFaltaComponente(this)">
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_hemoconcentrador" readonly>
-                                 </div>
-
-                                 <!-- CONJUNTO DE TUBOS -->
-                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
-                                     <span class="text-gray-800 font-medium truncate">CONJ. TUBOS</span>
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_tubos" readonly>
-                                     <input type="number" name="kit_entregue_tubos" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_tubos" oninput="calcFaltaComponente(this)">
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_tubos" readonly>
-                                 </div>
-
-                                 <!-- CARDIOPLEGIA -->
-                                  <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center">
-                                     <span class="text-gray-800 font-medium truncate">CARDIOPLEGIA</span>
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_cardioplegia" readonly>
-                                     <input type="number" name="kit_entregue_cardioplegia" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_cardioplegia" oninput="calcFaltaComponente(this)">
-                                     <input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_cardioplegia" readonly>
-                                 </div>
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center"><span class="text-gray-800 font-medium truncate">OXIGENADOR DE MEMBRANA</span><input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_oxigenador" readonly><input type="number" name="kit_entregue_oxigenador" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_oxigenador" oninput="calcFaltaComponente(this)"><input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_oxigenador" readonly></div>
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center"><span class="text-gray-800 font-medium truncate">BOMBA CENTRIFUGA</span><input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_bomba" readonly><input type="number" name="kit_entregue_bomba" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_bomba" oninput="calcFaltaComponente(this)"><input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_bomba" readonly></div>
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center"><span class="text-gray-800 font-medium truncate">HEMOCONCENTRADOR</span><input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_hemoconcentrador" readonly><input type="number" name="kit_entregue_hemoconcentrador" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_hemoconcentrador" oninput="calcFaltaComponente(this)"><input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_hemoconcentrador" readonly></div>
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center"><span class="text-gray-800 font-medium truncate">CONJUNTO DE TUBOS</span><input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_tubos" readonly><input type="number" name="kit_entregue_tubos" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_tubos" oninput="calcFaltaComponente(this)"><input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_tubos" readonly></div>
+                                 <div class="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center"><span class="text-gray-800 font-medium truncate">CARDIOPLEGIA</span><input type="text" class="w-full px-1 py-1 border rounded text-center bg-gray-50 text-gray-500 comp-entregar" id="entregar_cardioplegia" readonly><input type="number" name="kit_entregue_cardioplegia" class="w-full px-1 py-1 border rounded text-center comp-entregue comp-entregue-editable" id="entregue_cardioplegia" oninput="calcFaltaComponente(this)"><input type="text" class="w-full px-1 py-1 border rounded text-center bg-red-50 text-red-600 comp-falta" id="falta_cardioplegia" readonly></div>
                              </div>
                          </div>
                     </div>
                 </div>
-
-                <div class="mb-6">
-                    <label class="form-label">Observação</label>
-                    <textarea name="observacao" id="det_observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações..."></textarea>
-                </div>
-
-                <div class="flex justify-end gap-3 pt-4 border-t">
-                    <button type="button" onclick="closeModalDetalhesAFC()" class="btn btn-secondary px-6">Cancelar</button>
-                    <button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">SALVAR</button>
-                </div>
+                <div class="mb-6"><label class="form-label">Observação</label><textarea name="observacao" id="det_observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações..."></textarea></div>
+                <div class="flex justify-end gap-3 pt-4 border-t"><button type="button" onclick="closeModalDetalhesAFC()" class="btn btn-secondary px-6">Cancelar</button><button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">SALVAR</button></div>
             </form>
         </div>
     </div>
 
+    <!-- ============================================= -->
+    <!-- MODAL: DETALHES CI (ATUALIZADO) -->
+    <!-- ============================================= -->
+    <div id="modal-detalhes-ci" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm overflow-y-auto">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-8xl my-10">
+            <div class="modal-header"><h3 class="modal-title">DETALHES CI</h3><button type="button" onclick="closeModalDetalhesCI()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button></div>
+            
+            <form method="POST" action="consignado.php" id="form-detalhes-ci">
+                <input type="hidden" name="atualizar_detalhes_ci" value="1">
+                <input type="hidden" name="ci_id" id="det_ci_id">
+                <input type="hidden" name="pregao_id_redirect" value="<?php echo $pregao_id; ?>">
+                <input type="hidden" name="detalhes_produtos" id="det_ci_detalhes_produtos">
+                
+                <div class="flex justify-between items-center mb-6">
+                     <div class="flex"><span class="tag-badge" id="det_ci_lote">LOTE 01</span><span class="tag-badge" id="det_ci_item_num">ITEM 01</span></div>
+                     <!-- CAMPOS GLOBAIS NO TOPO (DETALHES) -->
+                     <div class="flex gap-2 items-end flex-wrap">
+                         <div class="flex flex-col"><label class="form-label mb-1">CI Nº</label><input type="text" id="det_ci_numero" class="w-32 px-3 py-2 border rounded-lg bg-gray-100 font-bold" readonly></div>
+                         <div class="flex flex-col"><label class="form-label mb-1">EMPENHO</label><input type="text" name="numero_empenho" id="det_ci_empenho" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                         <div class="flex flex-col"><label class="form-label mb-1">PEDIDO</label><input type="text" name="numero_pedido" id="det_ci_pedido" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                         <div class="flex flex-col"><label class="form-label mb-1">NF</label><input type="text" name="numero_nota_fiscal" id="det_ci_nf" class="w-32 px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                     </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="space-y-4">
+                        <div><label class="form-label">E-fisco / CATMAT</label><input type="text" id="det_ci_catmat" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly></div>
+                        <div><label class="form-label">QTD SOLICITADA</label><input type="number" id="det_ci_qtd" class="w-full px-3 py-2 border rounded-lg form-input-readonly font-bold" readonly></div>
+                        <div><label class="form-label">VALOR UNITÁRIO DO ITEM</label><input type="text" id="det_ci_unit" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly></div>
+                        <div><label class="form-label">VALOR TOTAL DO ITEM</label><input type="text" id="det_ci_total" class="w-full px-3 py-2 border rounded-lg form-input-readonly" readonly></div>
+                    </div>
+                    <div class="space-y-6">
+                        <!-- Lista de produtos na CI -->
+                        <div class="border rounded-lg h-60 overflow-y-auto p-2 bg-gray-50 text-xs text-gray-500 mt-6">
+                            <table class="w-full text-left table-fixed">
+                                <thead>
+                                    <tr class="border-b bg-gray-100">
+                                        <th class="pb-2 pt-2 pl-2 w-8/12 font-semibold text-gray-600">PRODUTO</th>
+                                        <th class="pb-2 pt-2 w-2/12 font-semibold text-gray-600">REF.</th>
+                                        <th class="pb-2 pt-2 w-3/12 font-semibold text-gray-600">LOTE</th>
+                                        <th class="pb-2 pt-2 pr-2 w-1/12 text-center font-semibold text-gray-600">AÇÃO</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="det_ci_produtos_list"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-6"><label class="form-label">Observação</label><textarea name="observacao" id="det_ci_observacao" rows="3" class="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Insira observações..."></textarea></div>
+                <div class="flex justify-end gap-3 pt-4 border-t"><button type="button" onclick="closeModalDetalhesCI()" class="btn btn-secondary px-6">Cancelar</button><button type="submit" class="btn btn-primary px-6 bg-blue-600 hover:bg-blue-700">SALVAR ALTERAÇÕES</button></div>
+            </form>
+        </div>
+    </div>
 
     <script src="js/consignado.js?v=1.0"></script>
 </body>
