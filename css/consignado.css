@@ -59,8 +59,26 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
-.detail-item { display: inline-block; margin-right: 12px; color: #4b5563; cursor: pointer; font-family: monospace; background-color: #f3f4f6; padding: 1px 6px; border-radius: 4px; }
-.detail-item:hover { color: #2563eb; background-color: #e0e7ff; }
+.detail-item { 
+    display: inline-block;
+    margin-right: 8px;
+    cursor: pointer;
+    font-family: monospace;
+    background-color: #037a13; /* Azul vivo */
+    color: white;
+    padding: 2px 8px;
+    border-radius: 9999px; /* Pill shape */
+    font-weight: 600;
+    font-size: 0.75rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.detail-item:hover { 
+    background-color: #09a21e;
+    transform: scale(1.05);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    
+}
 
 /* Modais */
 .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; padding-bottom: 1rem; margin-bottom: 1.5rem; }
