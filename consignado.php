@@ -399,6 +399,11 @@ try {
         <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b pb-4 no-print gap-4">
             <h2 class="text-2xl font-bold text-gray-800">Cadastrar Pregão Consignado</h2>
             <div class="flex flex-wrap gap-2 justify-end">
+                <?php if ($pregao_id): ?>
+                    <a href="imprimir_consignado.php?pregao_id=<?php echo $pregao_id; ?>" target="_blank" class="btn btn-primary bg-gray-600 hover:bg-gray-700">
+                        <i class="fas fa-print mr-2"></i> IMPRIMIR RELATÓRIO
+                    </a>
+                <?php endif; ?>
                 <button type="button" onclick="openModalProduto()" class="btn btn-outline border-blue-600 text-blue-600 hover:bg-blue-50 font-semibold px-4 py-2 rounded-lg border-2">
                     <i class="fas fa-plus-circle mr-2"></i> CADASTRO DE PRODUTOS
                 </button>
