@@ -1,0 +1,110 @@
+/* Estilos específicos para a página de Consignado */
+
+/* Tabela Customizada */
+.table-header-custom th {
+    background-color: #f3f4f6;
+    color: #374151;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 8px 4px;
+    border-bottom: 2px solid #e5e7eb;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.table-row-custom td {
+    padding: 8px 4px;
+    font-size: 0.8rem;
+    vertical-align: middle;
+    border-bottom: 1px solid #f3f4f6;
+    text-align: center;
+}
+
+.table-row-custom td.text-left { text-align: left; }
+.table-row-custom td.text-right { text-align: right; }
+
+/* Linhas de Detalhes e Ações */
+.row-action td { background-color: #fafafa; padding: 6px 16px; border-bottom: 1px solid #f3f4f6; }
+.row-details td { background-color: #ffffff; padding: 2px 16px; border-bottom: 1px solid #f3f4f6; font-size: 0.75rem; color: #4b5563; }
+.row-details:last-child td { border-bottom: 2px solid #e5e7eb; }
+
+/* Labels e Links */
+.obs-label { font-weight: bold; font-size: 0.7rem; color: #6b7280; text-transform: uppercase; margin-right: 6px; }
+.obs-content { font-size: 0.8rem; color: #374151; font-style: italic; }
+
+.action-link { color: #2563eb; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; cursor: pointer; margin-left: 12px; transition: color 0.2s; }
+.action-link:hover { color: #1e40af; text-decoration: underline; }
+
+.detail-label { font-weight: bold; margin-right: 8px; color: #111827; font-size: 0.7rem; }
+
+/* Badge AFC */
+.badge-afc {
+    display: inline-block;
+    margin-right: 8px;
+    cursor: pointer;
+    font-family: monospace;
+    background-color: #2563eb; /* Azul vivo */
+    color: white;
+    padding: 2px 8px;
+    border-radius: 9999px; /* Pill shape */
+    font-weight: 600;
+    font-size: 0.75rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.badge-afc:hover {
+    background-color: #1d4ed8;
+    transform: scale(1.05);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.detail-item { 
+    display: inline-block;
+    margin-right: 8px;
+    cursor: pointer;
+    font-family: monospace;
+    background-color: #037a13; /* Azul vivo */
+    color: white;
+    padding: 2px 8px;
+    border-radius: 9999px; /* Pill shape */
+    font-weight: 600;
+    font-size: 0.75rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.detail-item:hover { 
+    background-color: #09a21e;
+    transform: scale(1.05);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    
+}
+
+/* Modais */
+.modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; padding-bottom: 1rem; margin-bottom: 1.5rem; }
+.modal-title { font-size: 1.25rem; font-weight: 700; color: #1f2937; }
+.tag-badge { background-color: #e5e7eb; color: #374151; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.8rem; margin-right: 0.5rem; }
+.form-label { display: block; font-size: 0.75rem; font-weight: 700; color: #4b5563; margin-bottom: 0.25rem; text-transform: uppercase; }
+.form-input-readonly { background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; }
+
+.kit-section { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; background-color: #f9fafb; }
+.kit-title { font-size: 0.85rem; font-weight: 700; color: #374151; margin-bottom: 0.75rem; text-decoration: underline; text-underline-offset: 4px; }
+
+/* Inputs editáveis na tabela de kits */
+.comp-entregue-editable {
+    background-color: #ffffff;
+    color: #1e40af;
+    border: 1px solid #93c5fd;
+    font-weight: 600;
+}
+.comp-entregue-editable:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+@media print { 
+    body { background-color: white; padding: 0; } 
+    .no-print { display: none !important; } 
+    .container { box-shadow: none !important; } 
+}
