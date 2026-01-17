@@ -90,36 +90,61 @@ class MonitorPE
         // Verifica Palavras-Chave (Dinâmico da Config)
         $isRelevant = false;
         $matchedKeyword = '';
+        $matchedColor = '5'; // Default: Cinza
 
-        // Filtra apenas ativas
-        $activeKeywords = array_filter($this->config['keywords'] ?? [], function ($k) {
-            return !empty($k['active']) && $k['active'] == true;
-        });
-
-        foreach ($activeKeywords as $kwConfig) {
-            $keyword = $kwConfig['term'];
-            if (mb_stripos($msg['texto'], $keyword) !== false) {
-                $isRelevant = true;
-                $matchedKeyword = $keyword;
-                break;
+        // 1. Verifica EMPRESA (se ativo)
+        if (!empty($this->config['alerts']['empresa']) && $this->config['alerts']['empresa'] == true) {
+            $companyTerms = $this->config['company_terms'] ?? '';
+            if (!empty($companyTerms)) {
+                $terms = array_map('trim', explode(',', $companyTerms));
+                foreach ($terms as $term) {
+                    if (!empty($term) && mb_stripos($msg['texto'], $term) !== false) {
+                        $isRelevant = true;
+                        $matchedKeyword = $term . " (Empresa)";
+                        $matchedColor = '1'; // Alta prioridade (Amarelo/Vermelho logicamente, mas usaremos 1)
+                        break;
+                    }
+                }
             }
         }
 
-        // Se alerta de palavras-chave estiver DESATIVADO na config, podemos decidir não alertar
-        if ($isRelevant && empty($this->config['alerts']['keywords'])) {
-            // Opcional: Se 'alert_keywords' estiver false, talvez não devêssemos gerar ALERTA, apenas logar.
-            // Mas para simplicidade, vamos manter is_alert true mas o frontend decide se toca som.
-            // Ou podemos setar is_alert = false aqui.
-            // Decisão: Vamos manter true para visualização, mas o som depende do front.
-            // Alternativa: Se desativado, nem considera relevante? Não, melhor capturar.
+        // 2. Verifica PALAVRAS-CHAVE (se ativo e não encontrou ainda, ou para priorizar cor?)
+        // Se já achou empresa, talvez queiramos continuar para ver se tem palavra com cor mais urgente?
+        // Vamos checar todas para pegar a de "maior prioridade" (menor número de cor: 1 é mais alto que 5)
+
+        if (!empty($this->config['alerts']['keywords']) && $this->config['alerts']['keywords'] == true) {
+            $activeKeywords = array_filter($this->config['keywords'] ?? [], function ($k) {
+                return !empty($k['active']) && $k['active'] == true;
+            });
+
+            foreach ($activeKeywords as $kwConfig) {
+                $keyword = $kwConfig['term'];
+                if (mb_stripos($msg['texto'], $keyword) !== false) {
+                    $kwColor = $kwConfig['color'] ?? '5';
+
+                    // Lógica de Prioridade: Se não era relevante, agora é.
+                    // Se já era relevante, verificamos se essa cor é "mais forte" (menor valor numérico)
+                    if (!$isRelevant) {
+                        $isRelevant = true;
+                        $matchedKeyword = $keyword;
+                        $matchedColor = $kwColor;
+                    } else {
+                        // Já era relevante. Vamos ver se essa nova palavra tem prioridade maior (valor menor)
+                        if (intval($kwColor) < intval($matchedColor)) {
+                            $matchedColor = $kwColor;
+                            $matchedKeyword = $keyword;
+                        }
+                    }
+                }
+            }
         }
 
         // Se for relevante, notificamos
         if ($isRelevant) {
-            echo "   [!] ALERTA: Mensagem Relevante encontrada! (Gatilho: '$matchedKeyword')\n";
+            echo "   [!] ALERTA: Mensagem Relevante encontrada! (Gatilho: '$matchedKeyword', Cor: $matchedColor)\n";
             echo "       Texto: " . substr($msg['texto'], 0, 100) . "...\n";
 
-            $this->logActivity($msg, true, $matchedKeyword);
+            $this->logActivity($msg, true, $matchedKeyword, $matchedColor);
 
             // Marca como vista
             $this->seenHashes[] = $hash;
@@ -133,7 +158,7 @@ class MonitorPE
         return false;
     }
 
-    private function logActivity($msg, $isAlert, $keyword = null)
+    private function logActivity($msg, $isAlert, $keyword = null, $color = '5')
     {
         $entry = [
             'timestamp' => date('Y-m-d H:i:s'),
@@ -141,7 +166,8 @@ class MonitorPE
             'data_mensagem' => $msg['data'],
             'texto' => $msg['texto'],
             'is_alert' => $isAlert,
-            'keyword' => $keyword
+            'keyword' => $keyword,
+            'color' => $color
         ];
 
         $currentLogs = [];

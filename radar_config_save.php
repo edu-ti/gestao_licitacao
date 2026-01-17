@@ -28,9 +28,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         foreach ($_POST['keywords_term'] as $idx => $term) {
             // Se o checkbox 'keywords_active' estiver setado para este índice, é true
             $isActive = isset($_POST['keywords_active'][$idx]);
+            $color = $_POST['keywords_color'][$idx] ?? '5';
+
             $keywords[] = [
                 'term' => $term,
-                'active' => $isActive
+                'active' => $isActive,
+                'color' => $color
             ];
         }
     }
@@ -39,17 +42,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if (!empty($_POST['new_keyword'])) {
         $keywords[] = [
             'term' => trim($_POST['new_keyword']),
-            'active' => true // Novas sempre ativas por padrão
+            'active' => true, // Novas sempre ativas por padrão
+            'color' => $_POST['new_keyword_color'] ?? '5'
         ];
     }
-
-    // Remover duplicatas
-    // (Poderíamos adicionar lógica aqui, mas por enquanto confia no usuário)
 
     // 3. Outras Configurações
     $continuous_alert = $_POST['continuous_alert'] ?? 'none';
     $auto_delete_days = intval($_POST['auto_delete_days'] ?? 0);
     $report_email = trim($_POST['report_email'] ?? '');
+    $company_terms = trim($_POST['company_terms'] ?? '');
 
     // 4. Montar Array Final
     $configData = [
@@ -58,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         'continuous_alert' => $continuous_alert,
         'auto_delete_days' => $auto_delete_days,
         'report_email' => $report_email,
+        'company_terms' => $company_terms,
         'updated_at' => date('Y-m-d H:i:s'),
         'updated_by' => $_SESSION['user_id']
     ];
