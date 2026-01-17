@@ -4,8 +4,8 @@
 // PROTÓTIPO DE MONITORAMENTO DO PE INTEGRADO
 // ==============================================
 
-require_once 'config.php';
-require_once 'Database.php';
+require_once 'config.php'; // Ensure this file exists or remove if not needed for standalone test
+require_once 'Database.php'; // Ensure this file exists or remove if not needed for standalone test
 
 // Aumenta tempo de execução
 set_time_limit(300);
@@ -14,14 +14,37 @@ class MonitorPE
 {
     private $historyFile = 'monitor_history.json'; // Apenas hashes (controle)
     private $logFile = 'monitor_logs.json';       // Histórico visível (dashboard)
+    private $configFile = 'monitor_config.json';
     private $monitorName = 'PE_INTEGRADO_TESTE';
     private $seenHashes = [];
+    private $config = [];
 
     public function __construct()
     {
-        // Carrega histórico do arquivo JSON
+        // 1. Carrega histórico
         if (file_exists($this->historyFile)) {
             $this->seenHashes = json_decode(file_get_contents($this->historyFile), true) ?? [];
+        }
+
+        // 2. Carrega Configurações
+        $this->loadConfig();
+    }
+
+    private function loadConfig()
+    {
+        $defaultConfig = [
+            'keywords' => [
+                ['term' => 'iminência', 'active' => true],
+                ['term' => 'recurso', 'active' => true]
+            ],
+            'auto_delete_days' => 0,
+            'alerts' => ['keywords' => true]
+        ];
+
+        if (file_exists($this->configFile)) {
+            $this->config = json_decode(file_get_contents($this->configFile), true) ?? $defaultConfig;
+        } else {
+            $this->config = $defaultConfig;
         }
     }
 
@@ -45,8 +68,11 @@ class MonitorPE
             }
         }
 
-        // Salva o histórico atualizado
+        // 4. Salva o histórico atualizado
         file_put_contents($this->historyFile, json_encode($this->seenHashes, JSON_PRETTY_PRINT));
+
+        // 5. Limpeza Automática
+        $this->autoCleanup();
 
         echo "--> Fim da execução. Novas mensagens relevantes: $newCount\n";
     }
@@ -61,14 +87,17 @@ class MonitorPE
             return false; // Já processada
         }
 
-        // Verifica Palavras-Chave
+        // Verifica Palavras-Chave (Dinâmico da Config)
         $isRelevant = false;
         $matchedKeyword = '';
 
-        // DEBUG TEXT
-        // echo "   [DEBUG CHECK] " . substr($msg['texto'], 0, 50) . "...\n";
+        // Filtra apenas ativas
+        $activeKeywords = array_filter($this->config['keywords'] ?? [], function ($k) {
+            return !empty($k['active']) && $k['active'] == true;
+        });
 
-        foreach (MONITOR_KEYWORDS as $keyword) {
+        foreach ($activeKeywords as $kwConfig) {
+            $keyword = $kwConfig['term'];
             if (mb_stripos($msg['texto'], $keyword) !== false) {
                 $isRelevant = true;
                 $matchedKeyword = $keyword;
@@ -76,21 +105,28 @@ class MonitorPE
             }
         }
 
+        // Se alerta de palavras-chave estiver DESATIVADO na config, podemos decidir não alertar
+        if ($isRelevant && empty($this->config['alerts']['keywords'])) {
+            // Opcional: Se 'alert_keywords' estiver false, talvez não devêssemos gerar ALERTA, apenas logar.
+            // Mas para simplicidade, vamos manter is_alert true mas o frontend decide se toca som.
+            // Ou podemos setar is_alert = false aqui.
+            // Decisão: Vamos manter true para visualização, mas o som depende do front.
+            // Alternativa: Se desativado, nem considera relevante? Não, melhor capturar.
+        }
+
         // Se for relevante, notificamos
         if ($isRelevant) {
             echo "   [!] ALERTA: Mensagem Relevante encontrada! (Gatilho: '$matchedKeyword')\n";
             echo "       Texto: " . substr($msg['texto'], 0, 100) . "...\n";
-            echo "       -> (Simulação: E-mail enviado para suporte@frpe.app.br)\n";
 
             $this->logActivity($msg, true, $matchedKeyword);
 
-            // Marca como vista para não alertar novamente
+            // Marca como vista
             $this->seenHashes[] = $hash;
             return true;
         }
 
-        // Se não é relevante, também marcamos como vista para o "Radar" não ficar lendo ela todo dia
-        // (A menos que você queira reanalisar mensagens antigas se mudar as keywords)
+        // Se não é relevante, também marcamos como vista
         $this->logActivity($msg, false); // Loga como "checado"
         $this->seenHashes[] = $hash;
 
@@ -116,46 +152,51 @@ class MonitorPE
         // Adiciona no início
         array_unshift($currentLogs, $entry);
 
-        // Mantém apenas os últimos 100 logs para não explodir o arquivo
-        if (count($currentLogs) > 100) {
-            $currentLogs = array_slice($currentLogs, 0, 100);
+        // Mantém apenas os últimos 100-200 logs
+        if (count($currentLogs) > 200) {
+            $currentLogs = array_slice($currentLogs, 0, 200);
         }
 
         file_put_contents($this->logFile, json_encode($currentLogs, JSON_PRETTY_PRINT));
     }
 
+    private function autoCleanup()
+    {
+        $days = intval($this->config['auto_delete_days'] ?? 0);
+        if ($days <= 0)
+            return; // Se 0, "Nunca" excluir
+
+        if (file_exists($this->logFile)) {
+            $logs = json_decode(file_get_contents($this->logFile), true) ?? [];
+            $initialCount = count($logs);
+
+            $cutoff = strtotime("-$days days");
+
+            // Filtra logs mais novos que o cutoff
+            $logs = array_filter($logs, function ($log) use ($cutoff) {
+                // Tenta parsear a data do log. Formato timestamp: Y-m-d H:i:s
+                $logTime = strtotime($log['timestamp']);
+                return $logTime >= $cutoff;
+            });
+
+            // Se houve remoção, salva
+            if (count($logs) < $initialCount) {
+                file_put_contents($this->logFile, json_encode(array_values($logs), JSON_PRETTY_PRINT));
+                echo "--> Limpeza automática: " . ($initialCount - count($logs)) . " logs antigos removidos (> $days dias).\n";
+            }
+        }
+    }
+
     private function parseMessages($html)
     {
-        // Parser adaptado para o formato visual do PE Integrado:
-        // Ex: "Coordenador (14/01/2026 10:15) Texto da mensagem..."
-        // O regex busca "QualquerTexto (dd/mm/aaaa HH:MM) RestoDoTexto"
-
         $messages = [];
-
-        // Remove quebras de linha extras para facilitar o regex
         $cleanHtml = str_replace(["\r", "\n"], ' ', $html);
-        $cleanHtml = strip_tags($cleanHtml); // Remove tags HTML, deixando só o texto puro
-
-        // Regex para capturar: [Autor] ([Data]) [Texto]
-        // Procura por padrões de data "dd/mm/aaaa HH:MM"
-        $pattern = '/(.*?)\((\d{2}\/\d{2}\/\d{4} \d{2}:\d{2})\)\s+(.*)/';
-
-        // Como removemos as tags, o texto ficou "linguiça". Vamos tentar separar por blocos.
-        // Melhor abordagem com DOMDocument para não misturar mensagens
+        $cleanHtml = strip_tags($cleanHtml);
 
         $dom = new DOMDocument();
-        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html); // Hack para UTF-8
-        $xpath = new DOMXPath($dom);
-
-        // No print, parece que cada mensagem é um bloco de texto. 
-        // Vamos pegar todos os textos e tentar aplicar o regex em cada nó de texto ou div.
-        //$nodes = $xpath->query('//div | //span | //td | //p'); 
-
-        // ABORDAGEM OFFSSET-BASED (Muito mais robusta para multilinhas)
+        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html);
         $fullText = $dom->textContent;
 
-        // Regex para encontrar TODOS os cabeçalhos: "Autor (Data)"
-        // Captura offsets para recortar o texto entre eles
         $pattern = '/([^\n\r]+?)\s*\((\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2})\)/';
 
         preg_match_all($pattern, $fullText, $matches, PREG_OFFSET_CAPTURE);
@@ -167,10 +208,8 @@ class MonitorPE
                 $remetente = trim($matches[1][$i][0]);
                 $data = $matches[2][$i][0];
 
-                // Onde termina este cabeçalho (começa o texto)
                 $startPos = $matches[0][$i][1] + strlen($matches[0][$i][0]);
 
-                // Onde começa o próximo cabeçalho (termina o texto)
                 if ($i < $count - 1) {
                     $endPos = $matches[0][$i + 1][1];
                 } else {
@@ -180,8 +219,6 @@ class MonitorPE
                 $length = $endPos - $startPos;
                 $textoRaw = substr($fullText, $startPos, $length);
                 $texto = trim($textoRaw);
-
-                // Limpeza extra de espaços duplicados
                 $texto = preg_replace('/\s+/', ' ', $texto);
 
                 if (!empty($texto)) {
@@ -200,16 +237,17 @@ class MonitorPE
 
     private function fetchMockContent()
     {
-        // MODO REAL/TESTE: Lê o arquivo local que criamos baseados nos Prints
         if (file_exists('pe_chat_sample.html')) {
             return file_get_contents('pe_chat_sample.html');
         }
-
-        return [];
+        return "";
     }
 }
 
 // Execução
-$monitor = new MonitorPE();
-$monitor->run();
+// Se chamado via CLI ou include
+if (php_sapi_name() === 'cli' || basename(__FILE__) == basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    $monitor = new MonitorPE();
+    $monitor->run();
+}
 ?>
