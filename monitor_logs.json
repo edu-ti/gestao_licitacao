@@ -1,0 +1,42 @@
+[
+    {
+        "timestamp": "2026-01-16 17:06:14",
+        "remetente": "Pregoeiro",
+        "data_mensagem": "16\/01\/2026 14:00",
+        "texto": "Senhores, informo que haver\u00e1 convoca\u00e7\u00e3o imediata para negocia\u00e7\u00e3o. Fiquem atentos ao anexo.",
+        "is_alert": true,
+        "keyword": "convoca\u00e7\u00e3o"
+    },
+    {
+        "timestamp": "2026-01-16 17:06:14",
+        "remetente": "Sistema",
+        "data_mensagem": "14\/01\/2026 10:17",
+        "texto": "Compra direta retornou para recebimento de lances. Justificativa: Uma vez que n\u00e3o existem fornecedores com propostas v\u00e1lidas para o certame...",
+        "is_alert": false,
+        "keyword": null
+    },
+    {
+        "timestamp": "2026-01-16 17:06:14",
+        "remetente": "Coordenador",
+        "data_mensagem": "14\/01\/2026 10:16",
+        "texto": "Processo reaberto para recebimento de proposta at\u00e9 o dia 19\/01\/2026. Recomenda-se que os licitantes deem lances com todos os documentos atualizados...",
+        "is_alert": false,
+        "keyword": null
+    },
+    {
+        "timestamp": "2026-01-16 17:06:14",
+        "remetente": "Coordenador",
+        "data_mensagem": "14\/01\/2026 10:15",
+        "texto": "Uma vez que n\u00e3o existem fornecedores com propostas v\u00e1lidas para o certame, reabrirei prazo para o recebimento de lances conforme descrito no art. 19...",
+        "is_alert": false,
+        "keyword": null
+    },
+    {
+        "timestamp": "2026-01-16 17:06:14",
+        "remetente": "Sistema",
+        "data_mensagem": "08\/01\/2026 09:47",
+        "texto": "Chat bloqueado.",
+        "is_alert": false,
+        "keyword": null
+    }
+]

@@ -233,6 +233,11 @@ try {
                         <button class="tab-btn" data-tab="calendario">Calendário</button>
                         <a href="relatorios.php" class="tab-btn">Relatórios</a>
                         <a href="consignado.php" class="tab-btn">Consignado</a>
+                        <a href="licencas.php" class="tab-btn">Licenças & Certidões</a>
+                        <a href="radar.php" class="tab-btn">Monitorar</a>
+                    
+						
+					
                 </div>
 
                 <!-- Aba Pregões -->

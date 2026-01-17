@@ -24,6 +24,21 @@ define('SMTP_USER', 'contato@frpe.app.br'); // Ex: contato@frpe.app.br
 define('SMTP_PASS', 'g3st@0Frpe');      // A senha do seu e-mail
 define('SMTP_PORT', 465);                      // Porta do servidor SMTP (465 para SSL, 587 para TLS)
 
+// ==============================================
+// CONFIGURAÇÕES DO MONITOR DE MENSAGENS
+// ==============================================
+define('MONITOR_KEYWORDS', [
+    'convocação',
+    'convoca',
+    'anexo',
+    'recurso',
+    'contraproposta',
+    'negociação',
+    'sessão retomada',
+    'avisos',
+    'esclarecimento'
+]);
+
 // Definição de constantes e outras configurações
 define('APP_NAME', 'Sistema de Gestão de Pregões');
 define('BASE_URL', 'http://frpe.app.br'); 
