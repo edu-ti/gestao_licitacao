@@ -8,12 +8,12 @@ date_default_timezone_set('America/Sao_Paulo');
 
 // Configurações do banco de dados
 // Substitua as credenciais pelas do seu projeto "licitaweb"
-define('DB_HOST', '127.0.0.1'); 
-define('DB_NAME', 'u540193243_licitaweb_db'); 
-define('DB_USER', 'u540193243_licitaWeb'); 
-define('DB_PASS', 'gest@0licitaWeb'); 
+define('DB_HOST', '127.0.0.1');
+define('DB_NAME', 'u540193243_licitaweb_db');
+define('DB_USER', 'u540193243_licitaWeb');
+define('DB_PASS', 'gest@0licitaWeb');
 define('DB_CHARSET', 'utf8mb4');
-define( 'DB_COLLATE', '' );
+define('DB_COLLATE', '');
 
 // ==============================================
 // NOVAS CONFIGURAÇÕES DE E-MAIL (SMTP)
@@ -39,9 +39,14 @@ define('MONITOR_KEYWORDS', [
     'esclarecimento'
 ]);
 
+// ==============================================
+// CONFIGURAÇÕES DA INTELIGÊNCIA ARTIFICIAL (GEMINI)
+// ==============================================
+define('GEMINI_API_KEY', 'AIzaSyCp9An6feoIDbm7Qt-MTybwKLD2_3X082k');
+
 // Definição de constantes e outras configurações
 define('APP_NAME', 'Sistema de Gestão de Pregões');
-define('BASE_URL', 'http://frpe.app.br'); 
+define('BASE_URL', 'http://frpe.app.br');
 
 // Caminho para o diretório de uploads
 define('UPLOAD_DIR', __DIR__ . '/uploads/');
@@ -59,7 +64,8 @@ define('PERM_PADRAO', 'Padrao');
  * @param string $senha A senha em texto simples a ser hasheada.
  * @return string O hash da senha.
  */
-function hashPassword($senha) {
+function hashPassword($senha)
+{
     return password_hash($senha, PASSWORD_DEFAULT);
 }
 
@@ -70,12 +76,14 @@ function hashPassword($senha) {
  * @param string $hash O hash a ser verificado.
  * @return bool Retorna TRUE se a senha corresponder, FALSE caso contrário.
  */
-function verifyPassword($senha, $hash) {
+function verifyPassword($senha, $hash)
+{
     return password_verify($senha, $hash);
 }
 
 // Função para tratar erros de upload
-function handleUploadError($error_code) {
+function handleUploadError($error_code)
+{
     $php_errors = [
         UPLOAD_ERR_INI_SIZE => 'O arquivo excede o limite de upload definido no php.ini.',
         UPLOAD_ERR_FORM_SIZE => 'O arquivo excede o limite de upload definido no formulário HTML.',
@@ -91,7 +99,8 @@ function handleUploadError($error_code) {
 }
 
 // Função para criar diretório de uploads se não existir
-function createDirectoryIfNotExists($dir) {
+function createDirectoryIfNotExists($dir)
+{
     if (!is_dir($dir)) {
         if (!mkdir($dir, 0755, true)) {
             die("Falha ao criar o diretório de uploads: " . $dir);
@@ -101,17 +110,18 @@ function createDirectoryIfNotExists($dir) {
 createDirectoryIfNotExists(UPLOAD_DIR);
 
 // Função global para logar atividades
-function logActivity($pdo, $usuario_id, $tabela, $acao, $registro_id, $detalhes) {
+function logActivity($pdo, $usuario_id, $tabela, $acao, $registro_id, $detalhes)
+{
     // Garante que a conexão com o banco de dados é válida
     if (!$pdo) {
         error_log("Erro de log: conexão PDO não é válida.");
         return;
     }
-    
+
     // Insere o log na tabela `logs_atividades` usando uma prepared statement para segurança
     $sql = "INSERT INTO logs_atividades (usuario_id, tabela, acao, registro_id, detalhes) VALUES (?, ?, ?, ?, ?)";
     $stmt = $pdo->prepare($sql);
-    
+
     // Tenta executar a query
     try {
         $stmt->execute([$usuario_id, $tabela, $acao, $registro_id, $detalhes]);
@@ -141,7 +151,8 @@ if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) >
 $_SESSION['last_activity'] = time(); // Atualiza o timestamp da última atividade
 
 // Funções para resposta JSON (mantidas aqui para facilitar o uso nas APIs)
-function jsonResponse($data, $statusCode = 200) {
+function jsonResponse($data, $statusCode = 200)
+{
     http_response_code($statusCode);
     echo json_encode($data);
     exit;
