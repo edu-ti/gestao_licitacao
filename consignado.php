@@ -400,9 +400,9 @@ try {
             <h2 class="text-2xl font-bold text-gray-800">Cadastrar Pregão Consignado</h2>
             <div class="flex flex-wrap gap-2 justify-end">
                 <?php if ($pregao_id): ?>
-                    <a href="imprimir_consignado.php?pregao_id=<?php echo $pregao_id; ?>" target="_blank" class="btn btn-primary bg-gray-600 hover:bg-gray-700">
+                    <button type="button" onclick="openModalImprimir()" class="btn btn-primary bg-gray-600 hover:bg-gray-700">
                         <i class="fas fa-print mr-2"></i> IMPRIMIR RELATÓRIO
-                    </a>
+                    </button>
                 <?php endif; ?>
                 <button type="button" onclick="openModalProduto()" class="btn btn-outline border-blue-600 text-blue-600 hover:bg-blue-50 font-semibold px-4 py-2 rounded-lg border-2">
                     <i class="fas fa-plus-circle mr-2"></i> CADASTRO DE PRODUTOS
@@ -920,6 +920,108 @@ try {
             </form>
         </div>
     </div>
+
+    <!-- MODAL IMPRIMIR RELATÓRIO -->
+    <div id="modal-imprimir" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center hidden z-50 backdrop-blur-sm">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <h3 class="text-xl font-bold text-gray-800">Opções de Impressão</h3>
+                <button type="button" onclick="closeModalImprimir()" class="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
+            </div>
+            
+            <div class="space-y-4">
+                <?php
+                if ($pregao_id && !empty($itens_agrupados)) {
+                    $fornecedores_unicos = array_keys($itens_agrupados);
+                    $lotes_unicos = [];
+                    foreach ($itens_agrupados as $lotes_fornec) {
+                        foreach (array_keys($lotes_fornec) as $l) {
+                            if ($l !== 'SEM_LOTE' && !in_array($l, $lotes_unicos)) $lotes_unicos[] = $l;
+                        }
+                    }
+                    sort($lotes_unicos);
+                } else {
+                    $fornecedores_unicos = [];
+                    $lotes_unicos = [];
+                }
+                ?>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Fornecedor</label>
+                    <select id="print_fornecedor" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="">Todos os Fornecedores</option>
+                        <?php foreach ($fornecedores_unicos as $f): ?>
+                            <option value="<?php echo htmlspecialchars($f); ?>"><?php echo htmlspecialchars($f); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Lote</label>
+                    <select id="print_lote" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="">Todos os Lotes</option>
+                        <?php foreach ($lotes_unicos as $l): ?>
+                            <option value="<?php echo htmlspecialchars($l); ?>">Lote <?php echo htmlspecialchars($l); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Status de Saldo</label>
+                    <select id="print_status" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="todos">Mostrar todos os itens</option>
+                        <option value="ativos">Ocultar itens com saldo zerado</option>
+                    </select>
+                </div>
+
+                <div class="flex gap-4 pt-2">
+                    <label class="flex items-center space-x-2">
+                        <input type="checkbox" id="print_show_afc" checked style="appearance: auto; width: 20px; height: 20px; accent-color: #2563eb; cursor: pointer;">
+                        <span class="text-sm font-medium text-gray-700">Mostrar AFCs</span>
+                    </label>
+                    <label class="flex items-center space-x-2">
+                        <input type="checkbox" id="print_show_ci" checked style="appearance: auto; width: 20px; height: 20px; accent-color: #2563eb; cursor: pointer;">
+                        <span class="text-sm font-medium text-gray-700">Mostrar CIs</span>
+                    </label>
+                </div>
+
+            </div>
+            <div class="flex justify-end gap-3 mt-6 border-t pt-4">
+                <button type="button" onclick="closeModalImprimir()" class="btn btn-secondary px-4">Cancelar</button>
+                <button type="button" onclick="gerarPDFConsignado(<?php echo $pregao_id ?? 0; ?>)" class="btn btn-primary px-4 bg-gray-600 hover:bg-gray-700 text-white">
+                    <i class="fas fa-file-pdf mr-2"></i> GERAR PDF
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function openModalImprimir() {
+        document.getElementById('modal-imprimir').classList.remove('hidden');
+    }
+    
+    function closeModalImprimir() {
+        document.getElementById('modal-imprimir').classList.add('hidden');
+    }
+
+    function gerarPDFConsignado(pregao_id) {
+        if (!pregao_id) return;
+        
+        const fornecedor = document.getElementById('print_fornecedor').value;
+        const lote = document.getElementById('print_lote').value;
+        const status = document.getElementById('print_status').value;
+        const show_afc = document.getElementById('print_show_afc').checked ? 1 : 0;
+        const show_ci = document.getElementById('print_show_ci').checked ? 1 : 0;
+        
+        let url = `imprimir_consignado.php?pregao_id=${pregao_id}`;
+        if (fornecedor) url += `&fornecedor=${encodeURIComponent(fornecedor)}`;
+        if (lote) url += `&lote=${encodeURIComponent(lote)}`;
+        if (status === 'ativos') url += `&hide_zero_balance=1`;
+        url += `&show_afc=${show_afc}&show_ci=${show_ci}`;
+        
+        window.open(url, '_blank');
+        closeModalImprimir();
+    }
+    </script>
 
     <script src="js/consignado.js?v=1.0"></script>
 </body>
