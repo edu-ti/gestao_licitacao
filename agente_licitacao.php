@@ -29,6 +29,12 @@ try {
         $stmt_pregao = $pdo->prepare("SELECT numero_edital, orgao_comprador FROM pregoes WHERE id = ?");
         $stmt_pregao->execute([$anexo['pregao_id']]);
         $pregao = $stmt_pregao->fetch(PDO::FETCH_ASSOC);
+
+        // Buscar histórico
+        $usuario_id = $_SESSION['user_id'] ?? 0;
+        $stmt_hist = $pdo->prepare("SELECT * FROM agente_historico WHERE anexo_id = ? AND usuario_id = ? ORDER BY data_hora DESC");
+        $stmt_hist->execute([$anexo_id, $usuario_id]);
+        $historico = $stmt_hist->fetchAll(PDO::FETCH_ASSOC);
     }
 
 } catch (Exception $e) {
@@ -49,6 +55,8 @@ try {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Marked.js para renderizar Markdown da IA -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- SweetAlert2 para alertas bonitos -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         .markdown-body h1 {
             font-size: 1.5rem;
@@ -215,16 +223,45 @@ try {
                         </div>
                     </div>
 
+                    <!-- Análise de Catálogo (Especialista em Produtos) -->
+                    <div class="bg-gray-50 border rounded-lg p-5 mt-4">
+                        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 border-b pb-2">Análise de
+                            Catálogo (Produto)</h3>
+                        <p class="text-xs text-gray-500 mb-3">Valide se o catálogo atende ao Edital e gere
+                            impugnação/recurso.</p>
+
+                        <div class="flex flex-col gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">Descritivo exigido no
+                                    Edital/TR</label>
+                                <textarea id="descritivo_produto"
+                                    class="w-full min-h-[80px] p-2 border rounded-lg resize-none focus:ring-2 focus:ring-indigo-500 outline-none select-text text-sm"
+                                    placeholder="Ex: Cadeira ergonômica com regulagem de altura e encosto inclinado..."></textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">Catálogo do Produto
+                                    (PDF/Imagem/Doc)</label>
+                                <input type="file" id="arquivo_catalogo" accept=".pdf,.doc,.docx,.txt"
+                                    class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 border p-1 rounded-lg bg-white">
+                            </div>
+
+                            <button onclick="analisarCatalogo()"
+                                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded-lg font-semibold flex justify-center items-center gap-2 transition-colors mt-1">
+                                <i class="fas fa-search-plus"></i> Analisar Produto & Gerar Peça
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Chat Livre -->
-                    <div class="bg-gray-50 border rounded-lg p-5 flex-grow flex flex-col">
+                    <div class="bg-gray-50 border rounded-lg p-5 mt-4">
                         <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 border-b pb-2">Gerador
                             Personalizado</h3>
                         <p class="text-xs text-gray-500 mb-3">Converse com a IA para esclarecer dúvidas específicas ou pedir
-                            um documento moldado (Ex: "Faça uma impugnação focada na restrição do atestado XPTO na página
-                            12").</p>
+                            um documento moldado.</p>
 
                         <textarea id="chat_input"
-                            class="w-full flex-grow min-h-[120px] p-3 border rounded-lg resize-none focus:ring-2 focus:ring-purple-500 outline-none select-text text-sm"
+                            class="w-full min-h-[120px] p-3 border rounded-lg resize-none focus:ring-2 focus:ring-purple-500 outline-none select-text text-sm"
                             placeholder="O que você precisa sobre este edital?"></textarea>
 
                         <button onclick="enviarPromptLivre()"
@@ -232,6 +269,30 @@ try {
                             <i class="fas fa-paper-plane"></i> Enviar para a IA
                         </button>
                     </div>
+
+                    <!-- Histórico -->
+                    <?php if (!empty($historico)): ?>
+                        <div class="bg-gray-50 border rounded-lg p-5 mt-4 flex-grow overflow-y-auto max-h-[400px]">
+                            <h3
+                                class="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 border-b pb-2 flex items-center gap-2">
+                                <i class="fas fa-history text-gray-500"></i> Histórico de Conversas
+                            </h3>
+                            <div class="flex flex-col gap-3">
+                                <?php foreach ($historico as $item): ?>
+                                    <div class="bg-white border rounded-lg p-3 text-sm cursor-pointer hover:bg-gray-100 transition-colors"
+                                        onclick="carregarHistorico(<?php echo htmlspecialchars(json_encode($item['resposta_ia'])); ?>)">
+                                        <div class="text-xs text-gray-400 mb-1 flex justify-between">
+                                            <span><i class="fas fa-calendar-alt"></i>
+                                                <?php echo date('d/m/Y H:i', strtotime($item['data_hora'])); ?></span>
+                                        </div>
+                                        <p class="text-gray-700 line-clamp-2 italic">
+                                            "<?php echo htmlspecialchars(substr($item['prompt_usuario'], 0, 150)) . (strlen($item['prompt_usuario']) > 150 ? '...' : ''); ?>"
+                                        </p>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
 
                 </div>
 

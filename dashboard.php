@@ -129,8 +129,8 @@ try {
         $active_tokens = $pdo->query($sql_tokens)->fetchAll(PDO::FETCH_ASSOC);
     }
     $total_pregoes_geral = $pdo->query("SELECT COUNT(*) FROM pregoes")->fetchColumn();
-    $valor_total_disputa = $pdo->query("SELECT SUM(quantidade * valor_unitario) FROM itens_pregoes")->fetchColumn();
-    $total_fornecedores = $pdo->query("SELECT COUNT(*) FROM fornecedores")->fetchColumn();
+    $total_ganhos_fr = $pdo->query("SELECT SUM(i.quantidade * i.valor_unitario) FROM itens_pregoes i JOIN fornecedores f ON i.fornecedor_id = f.id WHERE f.nome LIKE '%FR Produto%' AND i.status_item IN ('Homologado', 'Adjudicado')")->fetchColumn();
+    $total_ganhos_poulp = $pdo->query("SELECT SUM(i.quantidade * i.valor_unitario) FROM itens_pregoes i JOIN fornecedores f ON i.fornecedor_id = f.id WHERE f.nome LIKE '%Poulp%' AND i.status_item IN ('Homologado', 'Adjudicado')")->fetchColumn();
     $recente_stmt = $pdo->query("SELECT numero_edital FROM pregoes ORDER BY data_publicacao DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
     $pregao_mais_recente = $recente_stmt ? $recente_stmt['numero_edital'] : 'N/D';
     $status_counts = $pdo->query("SELECT status, COUNT(*) as total FROM pregoes GROUP BY status")->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -176,14 +176,14 @@ try {
             <!-- KPIs -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total de Pregões</h4><p class="text-3xl font-bold text-gray-800"><?php echo $total_pregoes_geral; ?></p></div>
-                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Valor Total em Disputa</h4><p class="text-3xl font-bold text-gray-800">R$ <?php echo number_format($valor_total_disputa ?? 0, 2, ',', '.'); ?></p></div>
-                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Fornecedores Ativos</h4><p class="text-3xl font-bold text-gray-800"><?php echo $total_fornecedores; ?></p></div>
+                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total Ganhos FR</h4><p class="text-3xl font-bold text-gray-800">R$ <?php echo number_format($total_ganhos_fr ?? 0, 2, ',', '.'); ?></p></div>
+                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total Ganhos Poulp</h4><p class="text-3xl font-bold text-gray-800">R$ <?php echo number_format($total_ganhos_poulp ?? 0, 2, ',', '.'); ?></p></div>
                 <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Pregão Mais Recente</h4><p class="text-xl font-bold text-gray-800 truncate"><?php echo htmlspecialchars($pregao_mais_recente); ?></p></div>
             </div>
             
             <div class="bg-white p-6 rounded-lg shadow-lg mb-8">
                 <h3 class="text-xl font-bold text-gray-700 mb-4">Resumo por Status</h3>
-                <div class="max-w-md mx-auto">
+                <div class="max-w-sm mx-auto flex justify-center items-center" style="max-height: 250px;">
                     <canvas id="statusChart"></canvas>
                 </div>
             </div>
@@ -468,7 +468,8 @@ try {
                     },
                     options: {
                         responsive: true,
-                        plugins: { legend: { position: 'top' } }
+                        plugins: { legend: { position: 'right' } },
+                        maintainAspectRatio: false
                     }
                 });
             }

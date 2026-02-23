@@ -6,6 +6,32 @@
 // Define o fuso horário para o horário de Brasília para garantir que todas as datas e horas sejam exibidas corretamente.
 date_default_timezone_set('America/Sao_Paulo');
 
+// ==============================================
+// CARREGADOR DE VARIÁVEIS DE AMBIENTE (.env)
+// ==============================================
+function carregarEnv($caminho)
+{
+    if (!file_exists($caminho)) {
+        return;
+    }
+    $linhas = file($caminho, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($linhas as $linha) {
+        if (strpos(trim($linha), '#') === 0)
+            continue;
+        list($nome, $valor) = explode('=', $linha, 2);
+        $nome = trim($nome);
+        $valor = trim($valor, " \t\n\r\0\x0B\"'"); // Remove espaços e aspas
+        if (!array_key_exists($nome, $_SERVER) && !array_key_exists($nome, $_ENV)) {
+            putenv(sprintf('%s=%s', $nome, $valor));
+            $_ENV[$nome] = $valor;
+            $_SERVER[$nome] = $valor;
+        }
+    }
+}
+// Carrega as variáveis do arquivo .env na raiz do projeto
+carregarEnv(__DIR__ . '/.env');
+
+
 // Configurações do banco de dados
 // Substitua as credenciais pelas do seu projeto "licitaweb"
 define('DB_HOST', '127.0.0.1');
@@ -42,7 +68,8 @@ define('MONITOR_KEYWORDS', [
 // ==============================================
 // CONFIGURAÇÕES DA INTELIGÊNCIA ARTIFICIAL (GEMINI)
 // ==============================================
-define('GEMINI_API_KEY', 'AIzaSyCp9An6feoIDbm7Qt-MTybwKLD2_3X082k');
+// Busca a chave de API do arquivo .env (variáveis de ambiente)
+define('GEMINI_API_KEY', getenv('GEMINI_API_KEY') ?: '');
 
 // Definição de constantes e outras configurações
 define('APP_NAME', 'Sistema de Gestão de Pregões');

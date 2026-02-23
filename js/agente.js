@@ -42,6 +42,59 @@ function enviarPromptLivre() {
     solicitarIA(promptCompleto);
 }
 
+function analisarCatalogo() {
+    if (!anexoId) return;
+    const descritivo = document.getElementById('descritivo_produto').value.trim();
+    const arquivoInput = document.getElementById('arquivo_catalogo');
+
+    if (descritivo.length < 5) {
+        alert("Por favor, preencha o descritivo técnico exigido no edital.");
+        return;
+    }
+
+    if (arquivoInput.files.length === 0) {
+        alert("Por favor, anexe o catálogo do produto (PDF, Doc ou txt).");
+        return;
+    }
+
+    const arquivo = arquivoInput.files[0];
+    const formData = new FormData();
+    formData.append('anexo_id', anexoId);
+    formData.append('descritivo', descritivo);
+    formData.append('catalogo', arquivo);
+
+    // Prompt interno para a IA
+    const promptTexto = `Aja como um pregoeiro especialista em análise de produtos e um advogado de direito administrativo.
+Eu estou enviando DADOS DE DOIS DOCUMENTOS:
+Documento 1: O edital da licitação (já anexado no contexto).
+Documento 2: O catálogo do produto de um concorrente (estou enviando agora).
+
+A exigência do edital/Termo de Referência para este produto é a seguinte:
+"${descritivo}"
+
+Por favor, faça uma análise minuciosa cruzando a exigência do edital com as informações do catálogo do concorrente. 
+Verifique se o produto do catálogo ATENDE ou NÃO ATENDE aos requisitos.
+Se houver qualquer divergência, detalhe qual é. 
+Ao final, gere uma peça de IMPUGNAÇÃO ou RECURSO ADMINISTRATIVO argumentando a desclassificação do concorrente com base nessa divergência e na regra fática apresentada. Especifique os fatos.`;
+
+    formData.append('prompt', promptTexto);
+
+    document.getElementById('loading_overlay').classList.remove('hidden');
+    document.getElementById('btn_copy').classList.add('hidden');
+    document.getElementById('resposta_content').innerHTML = ''; // limpa
+
+    fetch('api_agente.php', {
+        method: 'POST',
+        body: formData // Envia como formulário multipart
+    })
+        .then(response => {
+            if (!response.ok) throw new Error("Erro de comunicação com o servidor.");
+            return response.json();
+        })
+        .then(data => tratarRespostaIA(data))
+        .catch(error => tratarErroIA(error));
+}
+
 function solicitarIA(prompt) {
     // 1. Mostrar loading
     document.getElementById('loading_overlay').classList.remove('hidden');
@@ -61,48 +114,53 @@ function solicitarIA(prompt) {
             if (!response.ok) throw new Error("Erro de comunicação com o servidor.");
             return response.json();
         })
-        .then(data => {
-            document.getElementById('loading_overlay').classList.add('hidden');
-
-            if (data.status === 'success') {
-                const respostaArea = document.getElementById('resposta_content');
-
-                // Usa marked.js para converter de Markdown do Gemini para HTML bonito
-                if (typeof marked !== 'undefined') {
-                    respostaArea.innerHTML = marked.parse(data.resposta);
-                } else {
-                    // Fallback se o marked falhar em carregar
-                    const textArea = document.createElement('div');
-                    textArea.innerHTML = data.resposta.replace(/\n/g, '<br>');
-                    respostaArea.appendChild(textArea);
-                }
-
-                // Exibir botão de cópia
-                document.getElementById('btn_copy').classList.remove('hidden');
-                document.getElementById('btn_copy').innerHTML = '<i class="fas fa-copy"></i> Copiar Texto';
-
-            } else {
-                Swal.fire('Erro', data.message || 'Erro desconhecido ao processar.', 'error');
-                document.getElementById('resposta_content').innerHTML = `
-                <div class="text-center text-red-500 p-8">
-                    <i class="fas fa-exclamation-circle text-4xl mb-4"></i>
-                    <h3 class="text-xl font-bold">Falha no Processamento</h3>
-                    <p class="mt-2 text-gray-600">${data.message || 'Tente novamente.'}</p>
-                </div>
-            `;
-            }
-        })
-        .catch(error => {
-            document.getElementById('loading_overlay').classList.add('hidden');
-            document.getElementById('resposta_content').innerHTML = `
-                <div class="text-center text-red-500 p-8">
-                    <i class="fas fa-wifi text-4xl mb-4"></i>
-                    <h3 class="text-xl font-bold">Erro de Conexão</h3>
-                    <p class="mt-2 text-gray-600">${error.message}</p>
-                </div>
-        `;
-        });
+        .then(data => tratarRespostaIA(data))
+        .catch(error => tratarErroIA(error));
 }
+
+function tratarRespostaIA(data) {
+    document.getElementById('loading_overlay').classList.add('hidden');
+
+    if (data.status === 'success') {
+        const respostaArea = document.getElementById('resposta_content');
+
+        // Usa marked.js para converter de Markdown do Gemini para HTML bonito
+        if (typeof marked !== 'undefined') {
+            respostaArea.innerHTML = marked.parse(data.resposta);
+        } else {
+            // Fallback se o marked falhar em carregar
+            const textArea = document.createElement('div');
+            textArea.innerHTML = data.resposta.replace(/\n/g, '<br>');
+            respostaArea.appendChild(textArea);
+        }
+
+        // Exibir botão de cópia
+        document.getElementById('btn_copy').classList.remove('hidden');
+        document.getElementById('btn_copy').innerHTML = '<i class="fas fa-copy"></i> Copiar Texto';
+
+    } else {
+        Swal.fire('Erro', data.message || 'Erro desconhecido ao processar.', 'error');
+        document.getElementById('resposta_content').innerHTML = `
+        <div class="text-center text-red-500 p-8">
+            <i class="fas fa-exclamation-circle text-4xl mb-4"></i>
+            <h3 class="text-xl font-bold">Falha no Processamento</h3>
+            <p class="mt-2 text-gray-600">${data.message || 'Tente novamente.'}</p>
+        </div>
+    `;
+    }
+}
+
+function tratarErroIA(error) {
+    document.getElementById('loading_overlay').classList.add('hidden');
+    document.getElementById('resposta_content').innerHTML = `
+        <div class="text-center text-red-500 p-8">
+            <i class="fas fa-wifi text-4xl mb-4"></i>
+            <h3 class="text-xl font-bold">Erro de Conexão</h3>
+            <p class="mt-2 text-gray-600">${error.message}</p>
+        </div>
+`;
+}
+
 
 function copiarResposta() {
     const content = document.getElementById('resposta_content');
@@ -121,4 +179,31 @@ function copiarResposta() {
         console.error('Falha ao copiar:', err);
         alert('Seu navegador não suporta cópia automática.');
     });
+}
+
+function carregarHistorico(respostaJson) {
+    const respostaArea = document.getElementById('resposta_content');
+
+    // Decodifica JSON string para ter certeza que quebras de linha funcionam (PHP passa via json_encode)
+    let respostaText = respostaJson;
+
+    // Usa marked.js para converter de Markdown do Gemini para HTML bonito
+    if (typeof marked !== 'undefined') {
+        respostaArea.innerHTML = marked.parse(respostaText);
+    } else {
+        // Fallback se o marked falhar em carregar
+        const textArea = document.createElement('div');
+        textArea.innerHTML = respostaText.replace(/\n/g, '<br>');
+        respostaArea.appendChild(textArea);
+    }
+
+    // Exibir botão de cópia
+    const btnCopy = document.getElementById('btn_copy');
+    if (btnCopy) {
+        btnCopy.classList.remove('hidden');
+        btnCopy.innerHTML = '<i class="fas fa-copy"></i> Copiar Texto';
+    }
+
+    // Rolagem suave mobile
+    respostaArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }

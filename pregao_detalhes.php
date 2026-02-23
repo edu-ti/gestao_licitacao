@@ -35,17 +35,23 @@ try {
     $pdo = $db->connect();
 
     if ($_SERVER["REQUEST_METHOD"] == "POST" && isAdmin()) {
-        $should_redirect = true;
+        // Verificação automática de coluna tipo_documento na tabela anexos_pregao
+        try {
+            $pdo->query("SELECT tipo_documento FROM anexos_pregao LIMIT 1");
+        } catch (Exception $e) {
+            $pdo->exec("ALTER TABLE anexos_pregao ADD COLUMN tipo_documento VARCHAR(50) DEFAULT 'Anexo Geral'");
+        }
 
         if (isset($_POST['submit_anexo']) && isset($_FILES['anexo']) && $_FILES['anexo']['error'] === UPLOAD_ERR_OK) {
             $nome_original = basename($_FILES['anexo']['name']);
             $descricao_anexo = !empty($_POST['descricao_anexo']) ? trim($_POST['descricao_anexo']) : $nome_original;
+            $tipo_documento = !empty($_POST['tipo_documento']) ? $_POST['tipo_documento'] : 'Anexo Geral';
             $extensao = pathinfo($nome_original, PATHINFO_EXTENSION);
             $nome_arquivo_unico = uniqid('pregao_' . $pregao_id . '_', true) . '.' . $extensao;
             $caminho_destino = UPLOAD_DIR . $nome_arquivo_unico;
             if (move_uploaded_file($_FILES['anexo']['tmp_name'], $caminho_destino)) {
-                $sql = "INSERT INTO anexos_pregao (pregao_id, nome_original, descricao_anexo, nome_arquivo) VALUES (?, ?, ?, ?)";
-                $pdo->prepare($sql)->execute([$pregao_id, $nome_original, $descricao_anexo, $nome_arquivo_unico]);
+                $sql = "INSERT INTO anexos_pregao (pregao_id, nome_original, descricao_anexo, nome_arquivo, tipo_documento) VALUES (?, ?, ?, ?, ?)";
+                $pdo->prepare($sql)->execute([$pregao_id, $nome_original, $descricao_anexo, $nome_arquivo_unico, $tipo_documento]);
                 $_SESSION['mensagem_detalhes'] = "Ficheiro enviado com sucesso!";
             } else {
                 $_SESSION['mensagem_detalhes'] = "Erro ao mover o ficheiro para o destino.";
@@ -137,7 +143,18 @@ try {
 
     $stmt_anexos = $pdo->prepare("SELECT * FROM anexos_pregao WHERE pregao_id = ? ORDER BY created_at DESC");
     $stmt_anexos->execute([$pregao_id]);
-    $anexos = $stmt_anexos->fetchAll(PDO::FETCH_ASSOC);
+    $todos_anexos = $stmt_anexos->fetchAll(PDO::FETCH_ASSOC);
+
+    $anexos_gerais = [];
+    $documentos_contratacao = [];
+
+    foreach ($todos_anexos as $anx) {
+        if (in_array($anx['tipo_documento'], ['Contrato', 'Ordem de Serviço (O.S.)', 'Nota de Empenho'])) {
+            $documentos_contratacao[] = $anx;
+        } else {
+            $anexos_gerais[] = $anx;
+        }
+    }
 
     // --- LÓGICA DE AGRUPAMENTO ATUALIZADA (FORNECEDOR -> LOTE -> ITENS) ---
     $itens_agrupados = [];
@@ -280,20 +297,24 @@ try {
                 </div>
             </div>
 
-            <!-- SECÇÃO DE ANEXOS ATUALIZADA -->
+            <!-- SECÇÃO DE ANEXOS GERAIS DA LICITAÇÃO -->
             <div class="mb-8">
-                <h3 class="text-xl font-bold text-gray-700 mb-4">Anexos</h3>
+                <h3 class="text-xl font-bold text-gray-700 mb-4">Anexos do Pregão</h3>
                 <div class="bg-white rounded-lg shadow-md border p-6">
-                    <?php if (empty($anexos)): ?>
-                        <p class="text-center text-gray-500">Nenhum anexo encontrado.</p>
+                    <?php if (empty($anexos_gerais)): ?>
+                        <p class="text-center text-gray-500">Nenhum anexo geral encontrado.</p>
                     <?php else: ?>
                         <ul class="space-y-3">
-                            <?php foreach ($anexos as $anexo): ?>
+                            <?php foreach ($anexos_gerais as $anexo): ?>
                                 <li class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                                    <a href="uploads/<?php echo htmlspecialchars($anexo['nome_arquivo']); ?>" target="_blank"
-                                        class="text-blue-600 hover:underline font-medium flex-grow mr-4">
-                                        <?php echo htmlspecialchars(!empty($anexo['descricao_anexo']) ? $anexo['descricao_anexo'] : $anexo['nome_original']); ?>
-                                    </a>
+                                    <div class="flex flex-col">
+                                        <a href="uploads/<?php echo htmlspecialchars($anexo['nome_arquivo']); ?>" target="_blank"
+                                            class="text-blue-600 hover:underline font-medium">
+                                            <?php echo htmlspecialchars(!empty($anexo['descricao_anexo']) ? $anexo['descricao_anexo'] : $anexo['nome_original']); ?>
+                                        </a>
+                                        <span
+                                            class="text-xs text-gray-400"><?php echo htmlspecialchars($anexo['tipo_documento'] ?? 'Anexo Geral'); ?></span>
+                                    </div>
                                     <div class="flex items-center gap-2">
                                         <a href="agente_licitacao.php?anexo_id=<?php echo $anexo['id']; ?>"
                                             class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded-md text-sm font-semibold flex items-center gap-2 shadow-sm transition-colors whitespace-nowrap"
@@ -315,22 +336,75 @@ try {
                             <?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- SECÇÃO DE DOCUMENTOS DE CONTRATAÇÃO -->
+            <div class="mb-8">
+                <h3 class="text-xl font-bold text-gray-700 mb-4">Documentos de Contratação</h3>
+                <div class="bg-white rounded-lg shadow-md border p-6">
+                    <?php if (empty($documentos_contratacao)): ?>
+                        <p class="text-center text-gray-500">Nenhum documento de contrato, O.S. ou empenho foi anexado a este
+                            pregão.</p>
+                    <?php else: ?>
+                        <ul class="space-y-3">
+                            <?php foreach ($documentos_contratacao as $doc): ?>
+                                <li class="flex justify-between items-center p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                    <div class="flex flex-col flex-grow mr-4">
+                                        <div class="flex items-center gap-2 mb-1">
+                                            <span
+                                                class="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase"><?php echo htmlspecialchars($doc['tipo_documento']); ?></span>
+                                        </div>
+                                        <a href="uploads/<?php echo htmlspecialchars($doc['nome_arquivo']); ?>" target="_blank"
+                                            class="text-gray-800 hover:text-blue-700 hover:underline font-semibold text-lg">
+                                            <i
+                                                class="fas fa-file-contract text-blue-500 mr-2"></i><?php echo htmlspecialchars(!empty($doc['descricao_anexo']) ? $doc['descricao_anexo'] : $doc['nome_original']); ?>
+                                        </a>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <?php if (isAdmin()): ?>
+                                            <form id="delete-anexo-form-<?php echo $doc['id']; ?>" method="POST" class="inline-block">
+                                                <input type="hidden" name="excluir_anexo_id" value="<?php echo $doc['id']; ?>">
+                                            </form>
+                                            <button type="button" class="btn btn-outline-danger btn-sm js-confirm-delete"
+                                                data-form-id="delete-anexo-form-<?php echo $doc['id']; ?>"
+                                                data-message="Tem certeza que deseja excluir o documento '<?php echo htmlspecialchars(!empty($doc['descricao_anexo']) ? $doc['descricao_anexo'] : $doc['nome_original']); ?>'?">
+                                                <i class="fas fa-trash-alt"></i> Excluir
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
 
                     <?php if (isAdmin()): ?>
                         <div class="mt-6 pt-6 border-t no-print">
                             <form method="POST" enctype="multipart/form-data">
-                                <h4 class="text-lg font-semibold text-gray-700 mb-3">Adicionar Novo Anexo</h4>
-                                <div class="space-y-4">
+                                <h4 class="text-lg font-semibold text-gray-700 mb-3">Adicionar Novo Arquivo</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label for="descricao_anexo" class="block text-sm font-medium text-gray-700">Nome ou
                                             Descrição do Ficheiro</label>
                                         <input type="text" name="descricao_anexo" id="descricao_anexo"
                                             class="mt-1 w-full px-3 py-2 border rounded-lg"
                                             placeholder="Ex: Edital, Proposta, etc.">
-                                        <p class="text-xs text-gray-500 mt-1">Se deixar em branco, será usado o nome original do
-                                            ficheiro.</p>
+                                        <p class="text-xs text-gray-500 mt-1">Se deixar em branco, será usado o nome original.
+                                        </p>
                                     </div>
                                     <div>
+                                        <label for="tipo_documento" class="block text-sm font-medium text-gray-700">Tipo de
+                                            Documento</label>
+                                        <select name="tipo_documento" id="tipo_documento"
+                                            class="mt-1 w-full px-3 py-2 border rounded-lg bg-white">
+                                            <option value="Anexo Geral">Anexo Geral</option>
+                                            <option value="Contrato">Contrato</option>
+                                            <option value="Ordem de Serviço (O.S.)">Ordem de Serviço (O.S.)</option>
+                                            <option value="Nota de Empenho">Nota de Empenho</option>
+                                            <option value="Outros">Outros</option>
+                                        </select>
+                                    </div>
+                                    <div class="md:col-span-2">
                                         <label for="anexo" class="block text-sm font-medium text-gray-700">Selecione o
                                             Ficheiro</label>
                                         <input type="file" name="anexo" id="anexo" required
@@ -338,7 +412,8 @@ try {
                                     </div>
                                 </div>
                                 <div class="flex justify-end mt-4">
-                                    <button type="submit" name="submit_anexo" class="btn btn-primary">Enviar Ficheiro</button>
+                                    <button type="submit" name="submit_anexo" class="btn btn-primary"><i
+                                            class="fas fa-upload mr-2"></i> Enviar Ficheiro</button>
                                 </div>
                             </form>
                         </div>
@@ -355,8 +430,20 @@ try {
                     <?php foreach ($itens_agrupados as $fornecedor_nome => $lotes_do_fornecedor): ?>
                         <div class="mb-6 break-inside-avoid">
                             <!-- Cabeçalho do Fornecedor -->
-                            <h4 class="text-lg font-semibold text-gray-800 mb-2 p-3 bg-gray-100 rounded-t-lg border-b">
-                                <?php echo htmlspecialchars($fornecedor_nome); ?></h4>
+                            <div class="flex justify-between items-center bg-gray-100 rounded-t-lg border-b p-3 mb-2">
+                                <h4 class="text-lg font-semibold text-gray-800">
+                                    <?php echo htmlspecialchars($fornecedor_nome); ?>
+                                </h4>
+                                <?php
+                                // Pega o ID do fornecedor do primeiro item deste grupo
+                                $primeiro_lote = reset($lotes_do_fornecedor);
+                                $fornecedor_id_atual = $primeiro_lote[0]['fornecedor_id'] ?? 0;
+                                ?>
+                                <a href="gerar_proposta.php?pregao_id=<?php echo $pregao_id; ?>&fornecedor_id=<?php echo $fornecedor_id_atual; ?>"
+                                    class="btn btn-primary btn-sm no-print">
+                                    <i class="fas fa-file-pdf mr-1"></i> Gerar Proposta
+                                </a>
+                            </div>
 
                             <!-- Loop pelos Lotes (ou 'SEM_LOTE') -->
                             <?php foreach ($lotes_do_fornecedor as $lote_nome => $itens_do_lote): ?>
@@ -364,7 +451,8 @@ try {
                                 <!-- Cabeçalho do Lote (só aparece se não for 'SEM_LOTE') -->
                                 <?php if ($lote_nome !== 'SEM_LOTE'): ?>
                                     <h5 class="text-md font-semibold text-gray-700 mb-2 p-2 bg-blue-100 text-center rounded-md border">
-                                        <?php echo htmlspecialchars($lote_nome); ?></h5>
+                                        <?php echo htmlspecialchars($lote_nome); ?>
+                                    </h5>
                                 <?php endif; ?>
 
                                 <!-- Tabela de Itens -->
@@ -395,22 +483,29 @@ try {
                                             <?php foreach ($itens_do_lote as $item): ?>
                                                 <tr>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['numero_item']); ?></td>
+                                                        <?php echo htmlspecialchars($item['numero_item']); ?>
+                                                    </td>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['descricao']); ?></td>
+                                                        <?php echo htmlspecialchars($item['descricao']); ?>
+                                                    </td>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['fabricante'] ?? 'N/D'); ?></td>
+                                                        <?php echo htmlspecialchars($item['fabricante'] ?? 'N/D'); ?>
+                                                    </td>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['modelo'] ?? 'N/D'); ?></td>
+                                                        <?php echo htmlspecialchars($item['modelo'] ?? 'N/D'); ?>
+                                                    </td>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['quantidade']); ?></td>
+                                                        <?php echo htmlspecialchars($item['quantidade']); ?>
+                                                    </td>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">R$
-                                                        <?php echo number_format($item['valor_unitario'], 2, ',', '.'); ?></td>
+                                                        <?php echo number_format($item['valor_unitario'], 2, ',', '.'); ?>
+                                                    </td>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm font-semibold">R$
                                                         <?php echo number_format($item['quantidade'] * $item['valor_unitario'], 2, ',', '.'); ?>
                                                     </td>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?></td>
+                                                        <?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?>
+                                                    </td>
                                                     <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm no-print">
                                                         <?php if (isAdmin()): ?>
                                                             <div class="flex items-center justify-center gap-2">
@@ -462,7 +557,8 @@ try {
                                     <option value="">Selecione...</option>
                                     <?php foreach ($fornecedores_disponiveis as $fornecedor): ?>
                                         <option value="<?php echo $fornecedor['id']; ?>">
-                                            <?php echo htmlspecialchars($fornecedor['nome']); ?></option><?php endforeach; ?>
+                                            <?php echo htmlspecialchars($fornecedor['nome']); ?>
+                                        </option><?php endforeach; ?>
                                 </select></div>
                             <div><label for="numero_lote">Nº do Lote (Opcional)</label><input type="text" name="numero_lote"
                                     id="numero_lote" class="form-input w-full px-3 py-2 border rounded-lg"
@@ -506,7 +602,8 @@ try {
                 <div class="border-b p-4 break-inside-avoid">
                     <p class="text-gray-800"><?php echo nl2br(htmlspecialchars($obs['observacao'])); ?></p>
                     <p class="text-xs text-gray-500 mt-2">Por <?php echo htmlspecialchars($obs['usuario_nome']); ?> em
-                        <?php echo converterTimestampParaLocal($obs['created_at']); ?></p>
+                        <?php echo converterTimestampParaLocal($obs['created_at']); ?>
+                    </p>
                 </div>
             <?php endforeach; ?>
             <?php if (empty($observacoes)): ?>
@@ -535,11 +632,14 @@ try {
                             <?php foreach ($historico as $log): ?>
                                 <tr>
                                     <td class="px-5 py-4 border-b border-gray-200 text-sm">
-                                        <?php echo converterTimestampParaLocal($log['created_at']); ?></td>
+                                        <?php echo converterTimestampParaLocal($log['created_at']); ?>
+                                    </td>
                                     <td class="px-5 py-4 border-b border-gray-200 text-sm">
-                                        <?php echo htmlspecialchars($log['usuario_nome']); ?></td>
+                                        <?php echo htmlspecialchars($log['usuario_nome']); ?>
+                                    </td>
                                     <td class="px-5 py-4 border-b border-gray-200 text-sm">
-                                        <?php echo htmlspecialchars($log['detalhes']); ?></td>
+                                        <?php echo htmlspecialchars($log['detalhes']); ?>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -566,7 +666,8 @@ try {
                                 <option value="">Selecione...</option>
                                 <?php foreach ($fornecedores_disponiveis as $fornecedor): ?>
                                     <option value="<?php echo $fornecedor['id']; ?>">
-                                        <?php echo htmlspecialchars($fornecedor['nome']); ?></option><?php endforeach; ?>
+                                        <?php echo htmlspecialchars($fornecedor['nome']); ?>
+                                    </option><?php endforeach; ?>
                             </select>
                         </div>
                         <div><label>Nº do Lote (Opcional)</label><input type="text" name="edit_numero_lote"
@@ -592,7 +693,8 @@ try {
                             <select name="edit_status_item" class="form-input">
                                 <?php foreach ($status_item_list as $status): ?>
                                     <option value="<?php echo htmlspecialchars($status); ?>">
-                                        <?php echo htmlspecialchars($status); ?></option>
+                                        <?php echo htmlspecialchars($status); ?>
+                                    </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
