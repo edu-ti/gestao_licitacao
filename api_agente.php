@@ -149,8 +149,8 @@ try {
             'Content-Type: application/json'
         ]);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        // Timeout longo de 60s pois leitura de PDF enorme pelo Gemini pode levar tempo.
-        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        // Timeout longo de 180s pois leitura de PDF enorme pelo Gemini pode levar tempo.
+        curl_setopt($ch, CURLOPT_TIMEOUT, 180);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
