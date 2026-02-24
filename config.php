@@ -32,23 +32,19 @@ function carregarEnv($caminho)
 carregarEnv(__DIR__ . '/.env');
 
 
-// Configurações do banco de dados
-// Substitua as credenciais pelas do seu projeto "licitaweb"
-define('DB_HOST', '127.0.0.1');
-define('DB_NAME', 'u540193243_licitaweb_db');
-define('DB_USER', 'u540193243_licitaWeb');
-define('DB_PASS', 'gest@0licitaWeb');
+// Configurações do banco de dados (Buscando do .env)
+define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
+define('DB_NAME', getenv('DB_NAME') ?: '');
+define('DB_USER', getenv('DB_USER') ?: '');
+define('DB_PASS', getenv('DB_PASS') ?: '');
 define('DB_CHARSET', 'utf8mb4');
 define('DB_COLLATE', '');
 
-// ==============================================
-// NOVAS CONFIGURAÇÕES DE E-MAIL (SMTP)
-// ATENÇÃO: Preencha com as credenciais do seu serviço de e-mail.
-// ==============================================
-define('SMTP_HOST', 'smtp.hostinger.com');    // Ex: smtp.hostinger.com, smtp.gmail.com
-define('SMTP_USER', 'contato@frpe.app.br'); // Ex: contato@frpe.app.br
-define('SMTP_PASS', 'g3st@0Frpe');      // A senha do seu e-mail
-define('SMTP_PORT', 465);                      // Porta do servidor SMTP (465 para SSL, 587 para TLS)
+// Configurações de E-mail (Buscando do .env)
+define('SMTP_HOST', getenv('SMTP_HOST') ?: 'smtp.hostinger.com');
+define('SMTP_USER', getenv('SMTP_USER') ?: '');
+define('SMTP_PASS', getenv('SMTP_PASS') ?: '');
+define('SMTP_PORT', getenv('SMTP_PORT') ?: 465);
 
 // ==============================================
 // CONFIGURAÇÕES DO MONITOR DE MENSAGENS
