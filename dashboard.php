@@ -226,6 +226,10 @@ try {
             <div class="bg-white p-4 sm:p-8 rounded-lg shadow-lg">
                 <div class="tab-container mb-6">
                         <button class="tab-btn active" data-tab="pregoes">Gestão de Pregões</button>
+                        <a href="boletim_licitacoes.php" class="tab-btn">Boletim de Licitações</a>
+                        <a href="encontrar_licitacoes.php" class="tab-btn">Encontrar Licitações</a>
+                        <a href="gerenciar_licitacoes.php" class="tab-btn">Gerenciar Licitações</a>
+                        <a href="monitorar_chat.php" class="tab-btn">Monitorar Chat</a>
                         <button class="tab-btn" data-tab="fornecedores">Gestão de Fornecedores</button>
                         <?php if (isAdmin()): ?>
                         <button class="tab-btn" data-tab="acessos">Gerar Token</button>
