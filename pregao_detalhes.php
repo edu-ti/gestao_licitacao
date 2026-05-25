@@ -41,6 +41,11 @@ try {
         } catch (Exception $e) {
             $pdo->exec("ALTER TABLE anexos_pregao ADD COLUMN tipo_documento VARCHAR(50) DEFAULT 'Anexo Geral'");
         }
+        try {
+            $pdo->query("SELECT valor_unitario_ref FROM itens_pregoes LIMIT 1");
+        } catch (Exception $e) {
+            $pdo->exec("ALTER TABLE itens_pregoes ADD COLUMN valor_unitario_ref DECIMAL(10,2) DEFAULT 0.00");
+        }
 
         if (isset($_POST['submit_anexo']) && isset($_FILES['anexo']) && $_FILES['anexo']['error'] === UPLOAD_ERR_OK) {
             $nome_original = basename($_FILES['anexo']['name']);
@@ -73,8 +78,9 @@ try {
         // --- ATUALIZAÇÃO PARA LOTES (INSERIR) ---
         if (isset($_POST['submit_item'])) {
             $numero_lote = !empty($_POST['numero_lote']) ? trim($_POST['numero_lote']) : null;
-            $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            $pdo->prepare($sql)->execute([$pregao_id, $_POST['fornecedor_id'], $numero_lote, $_POST['numero_item'], $_POST['descricao_item'], $_POST['fabricante_item'], $_POST['modelo_item'], $_POST['quantidade_item'], $_POST['valor_unitario_item']]);
+            $valor_unitario_ref = !empty($_POST['valor_unitario_ref_item']) ? $_POST['valor_unitario_ref_item'] : 0;
+            $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario, valor_unitario_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $pdo->prepare($sql)->execute([$pregao_id, $_POST['fornecedor_id'], $numero_lote, $_POST['numero_item'], $_POST['descricao_item'], $_POST['fabricante_item'], $_POST['modelo_item'], $_POST['quantidade_item'], $_POST['valor_unitario_item'], $valor_unitario_ref]);
             logActivity($pdo, $current_user_id, 'itens_pregoes', 'ADICIONAR ITEM', $pregao_id, "Item '" . $_POST['descricao_item'] . "' foi adicionado.");
             $_SESSION['mensagem_detalhes'] = "Item adicionado com sucesso!";
         }
@@ -82,7 +88,8 @@ try {
         // --- ATUALIZAÇÃO PARA LOTES (EDITAR) ---
         if (isset($_POST['submit_edit_item'])) {
             $edit_numero_lote = !empty($_POST['edit_numero_lote']) ? trim($_POST['edit_numero_lote']) : null;
-            $sql = "UPDATE itens_pregoes SET fornecedor_id = ?, numero_lote = ?, numero_item = ?, descricao = ?, fabricante = ?, modelo = ?, quantidade = ?, valor_unitario = ?, status_item = ?, status_motivo = ? WHERE id = ? AND pregao_id = ?";
+            $edit_valor_unitario_ref = !empty($_POST['edit_valor_unitario_ref']) ? $_POST['edit_valor_unitario_ref'] : 0;
+            $sql = "UPDATE itens_pregoes SET fornecedor_id = ?, numero_lote = ?, numero_item = ?, descricao = ?, fabricante = ?, modelo = ?, quantidade = ?, valor_unitario = ?, valor_unitario_ref = ?, status_item = ?, status_motivo = ? WHERE id = ? AND pregao_id = ?";
             $pdo->prepare($sql)->execute([
                 $_POST['edit_fornecedor_id'],
                 $edit_numero_lote,
@@ -92,6 +99,7 @@ try {
                 $_POST['edit_modelo'],
                 $_POST['edit_quantidade'],
                 $_POST['edit_valor_unitario'],
+                $edit_valor_unitario_ref,
                 $_POST['edit_status_item'],
                 $_POST['edit_status_motivo'],
                 $_POST['edit_item_id'],
@@ -156,20 +164,20 @@ try {
         }
     }
 
-    // --- LÓGICA DE AGRUPAMENTO ATUALIZADA (FORNECEDOR -> LOTE -> ITENS) ---
+    // --- LÓGICA DE AGRUPAMENTO (LOTE -> ITEM -> PARTICIPANTES) ---
     $itens_agrupados = [];
     $stmt_itens = $pdo->prepare(
         "SELECT i.*, f.nome AS fornecedor_nome 
          FROM itens_pregoes i 
          JOIN fornecedores f ON i.fornecedor_id = f.id 
          WHERE i.pregao_id = ? 
-         ORDER BY f.nome ASC, i.numero_lote ASC, CAST(i.numero_item AS UNSIGNED) ASC, i.numero_item ASC"
+         ORDER BY i.numero_lote ASC, CAST(i.numero_item AS UNSIGNED) ASC, i.numero_item ASC, f.nome ASC"
     );
     $stmt_itens->execute([$pregao_id]);
     foreach ($stmt_itens->fetchAll(PDO::FETCH_ASSOC) as $item) {
-        // Usa 'SEM_LOTE' como chave para itens sem lote definido
         $lote_key = !empty($item['numero_lote']) ? $item['numero_lote'] : 'SEM_LOTE';
-        $itens_agrupados[$item['fornecedor_nome']][$lote_key][] = $item;
+        $item_key = $item['numero_item'];
+        $itens_agrupados[$lote_key][$item_key][] = $item;
     }
 
     $fornecedores_disponiveis = $pdo->query("SELECT id, nome FROM fornecedores ORDER BY nome ASC")->fetchAll(PDO::FETCH_ASSOC);
@@ -421,133 +429,132 @@ try {
                 </div>
             </div>
 
-            <!-- --- ITENS E PROPOSTAS COM LÓGICA DE LOTE --- -->
+            <!-- --- ITENS E PROPOSTAS (LOTE -> ITEM -> PARTICIPANTES) --- -->
             <div class="mb-8">
                 <h3 class="text-xl font-bold text-gray-700 mb-4">Itens e Propostas</h3>
                 <?php if (empty($itens_agrupados)): ?>
                     <div class="text-center text-gray-500 p-4 border rounded-lg">Nenhum item registado.</div>
                 <?php else: ?>
-                    <?php foreach ($itens_agrupados as $fornecedor_nome => $lotes_do_fornecedor): ?>
+                    <?php foreach ($itens_agrupados as $lote_nome => $itens_do_lote): ?>
                         <div class="mb-6 break-inside-avoid">
-                            <!-- Cabeçalho do Fornecedor -->
-                            <div class="flex justify-between items-center bg-gray-100 rounded-t-lg border-b p-3 mb-2">
-                                <h4 class="text-lg font-semibold text-gray-800">
-                                    <?php echo htmlspecialchars($fornecedor_nome); ?>
-                                </h4>
-                                <?php
-                                // Pega o ID do fornecedor do primeiro item deste grupo
-                                $primeiro_lote = reset($lotes_do_fornecedor);
-                                $fornecedor_id_atual = $primeiro_lote[0]['fornecedor_id'] ?? 0;
-                                ?>
-                                <a href="gerar_proposta.php?pregao_id=<?php echo $pregao_id; ?>&fornecedor_id=<?php echo $fornecedor_id_atual; ?>"
-                                    class="btn btn-primary btn-sm no-print">
-                                    <i class="fas fa-file-pdf mr-1"></i> Gerar Proposta
-                                </a>
-                            </div>
+                            <?php if ($lote_nome !== 'SEM_LOTE'): ?>
+                                <h5 class="text-md font-semibold text-gray-700 mb-3 p-2 bg-blue-100 text-center rounded-md border">
+                                    <?php echo htmlspecialchars($lote_nome); ?>
+                                </h5>
+                            <?php endif; ?>
 
-                            <!-- Loop pelos Lotes (ou 'SEM_LOTE') -->
-                            <?php foreach ($lotes_do_fornecedor as $lote_nome => $itens_do_lote): ?>
+                            <?php foreach ($itens_do_lote as $item_key => $participantes): ?>
+                                <?php $item_ref = $participantes[0]; ?>
+                                <div class="border rounded-lg mb-4 overflow-hidden shadow-sm">
+                                    <div class="bg-blue-50 px-4 py-3 border-b">
+                                        <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+                                            <span class="font-semibold text-gray-800">Item <span class="text-blue-700"><?php echo htmlspecialchars($item_ref['numero_item']); ?></span></span>
+                                            <span class="flex-1 text-gray-700 min-w-[200px]"><?php echo htmlspecialchars($item_ref['descricao']); ?></span>
+                                            <span class="text-gray-600">Qtd.: <strong><?php echo htmlspecialchars($item_ref['quantidade']); ?></strong></span>
+                                            <span class="text-gray-600">V. Unit. Ref: <strong>R$ <?php echo number_format($item_ref['valor_unitario_ref'] ?? 0, 2, ',', '.'); ?></strong></span>
+                                            <span class="text-gray-600">V. Total Ref: <strong>R$ <?php echo number_format($item_ref['quantidade'] * ($item_ref['valor_unitario_ref'] ?? 0), 2, ',', '.'); ?></strong></span>
+                                        </div>
+                                    </div>
 
-                                <!-- Cabeçalho do Lote (só aparece se não for 'SEM_LOTE') -->
-                                <?php if ($lote_nome !== 'SEM_LOTE'): ?>
-                                    <h5 class="text-md font-semibold text-gray-700 mb-2 p-2 bg-blue-100 text-center rounded-md border">
-                                        <?php echo htmlspecialchars($lote_nome); ?>
-                                    </h5>
-                                <?php endif; ?>
-
-                                <!-- Tabela de Itens -->
-                                <div class="overflow-x-auto bg-white rounded-b-lg shadow-md border mb-4">
-                                    <table class="min-w-full leading-normal">
-                                        <thead class="bg-[#f7f6f6]">
-                                            <tr>
-                                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Nº</th>
-                                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Descrição
-                                                </th>
-                                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Fabricante
-                                                </th>
-                                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Modelo
-                                                </th>
-                                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Qtd.</th>
-                                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Valor
-                                                    Unit.</th>
-                                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Valor
-                                                    Total</th>
-                                                <th class="px-5 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status
-                                                </th>
-                                                <th
-                                                    class="no-print px-5 py-3 text-center text-xs font-semibold text-gray-600 uppercase">
-                                                    Ações</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($itens_do_lote as $item): ?>
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full leading-normal">
+                                            <thead class="bg-[#f7f6f6]">
                                                 <tr>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['numero_item']); ?>
-                                                    </td>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['descricao']); ?>
-                                                    </td>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['fabricante'] ?? 'N/D'); ?>
-                                                    </td>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['modelo'] ?? 'N/D'); ?>
-                                                    </td>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['quantidade']); ?>
-                                                    </td>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">R$
-                                                        <?php echo number_format($item['valor_unitario'], 2, ',', '.'); ?>
-                                                    </td>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm font-semibold">R$
-                                                        <?php echo number_format($item['quantidade'] * $item['valor_unitario'], 2, ',', '.'); ?>
-                                                    </td>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                                                        <?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?>
-                                                    </td>
-                                                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm no-print">
-                                                        <?php if (isAdmin()): ?>
-                                                            <div class="flex items-center justify-center gap-2">
-                                                                <button class="btn btn-secondary btn-sm edit-item-btn"
-                                                                    data-id="<?php echo $item['id']; ?>"
-                                                                    data-fornecedor_id="<?php echo $item['fornecedor_id']; ?>"
-                                                                    data-numero_lote="<?php echo htmlspecialchars($item['numero_lote'] ?? ''); ?>"
-                                                                    data-numero_item="<?php echo htmlspecialchars($item['numero_item']); ?>"
-                                                                    data-descricao="<?php echo htmlspecialchars($item['descricao']); ?>"
-                                                                    data-fabricante="<?php echo htmlspecialchars($item['fabricante'] ?? ''); ?>"
-                                                                    data-modelo="<?php echo htmlspecialchars($item['modelo'] ?? ''); ?>"
-                                                                    data-quantidade="<?php echo $item['quantidade']; ?>"
-                                                                    data-valor_unitario="<?php echo $item['valor_unitario']; ?>"
-                                                                    data-status_item="<?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?>"
-                                                                    data-status_motivo="<?php echo htmlspecialchars($item['status_motivo'] ?? ''); ?>">Editar</button>
-                                                                <form id="delete-item-form-<?php echo $item['id']; ?>" method="POST"
-                                                                    class="inline-block"><input type="hidden" name="excluir_id_item"
-                                                                        value="<?php echo $item['id']; ?>"></form>
-                                                                <button type="button" class="btn btn-danger btn-sm js-confirm-delete"
-                                                                    data-form-id="delete-item-form-<?php echo $item['id']; ?>"
-                                                                    data-message="Tem certeza que deseja excluir o item '<?php echo htmlspecialchars($item['descricao']); ?>'?">Excluir</button>
-                                                            </div>
-                                                        <?php endif; ?>
-                                                    </td>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Participante</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Fabricante</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Modelo</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">V. Unit.</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">V. Total</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
+                                                    <th class="no-print px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Ações</th>
                                                 </tr>
-                                                <?php if (!empty($item['status_motivo'])): ?>
-                                                    <tr class="bg-gray-50">
-                                                        <td colspan="9" class="px-5 py-2 border-b border-gray-200 text-sm">
-                                                            <strong>Motivo:</strong> <?php echo htmlspecialchars($item['status_motivo']); ?>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($participantes as $item): ?>
+                                                    <tr>
+                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm font-medium">
+                                                            <?php echo htmlspecialchars($item['fornecedor_nome']); ?>
+                                                        </td>
+                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm">
+                                                            <?php echo htmlspecialchars($item['fabricante'] ?? 'N/D'); ?>
+                                                        </td>
+                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm">
+                                                            <?php echo htmlspecialchars($item['modelo'] ?? 'N/D'); ?>
+                                                        </td>
+                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm">R$
+                                                            <?php echo number_format($item['valor_unitario'], 2, ',', '.'); ?>
+                                                        </td>
+                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm font-semibold">R$
+                                                            <?php echo number_format($item['quantidade'] * $item['valor_unitario'], 2, ',', '.'); ?>
+                                                        </td>
+                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm">
+                                                            <?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?>
+                                                        </td>
+                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm no-print">
+                                                            <?php if (isAdmin()): ?>
+                                                                <div class="flex items-center justify-center gap-2">
+                                                                    <button class="btn btn-secondary btn-sm edit-item-btn"
+                                                                        data-id="<?php echo $item['id']; ?>"
+                                                                        data-fornecedor_id="<?php echo $item['fornecedor_id']; ?>"
+                                                                        data-numero_lote="<?php echo htmlspecialchars($item['numero_lote'] ?? ''); ?>"
+                                                                        data-numero_item="<?php echo htmlspecialchars($item['numero_item']); ?>"
+                                                                        data-descricao="<?php echo htmlspecialchars($item['descricao']); ?>"
+                                                                        data-fabricante="<?php echo htmlspecialchars($item['fabricante'] ?? ''); ?>"
+                                                                        data-modelo="<?php echo htmlspecialchars($item['modelo'] ?? ''); ?>"
+                                                                        data-quantidade="<?php echo $item['quantidade']; ?>"
+                                                                        data-valor_unitario="<?php echo $item['valor_unitario']; ?>"
+                                                                        data-valor_unitario_ref="<?php echo $item['valor_unitario_ref'] ?? 0; ?>"
+                                                                        data-status_item="<?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?>"
+                                                                        data-status_motivo="<?php echo htmlspecialchars($item['status_motivo'] ?? ''); ?>">Editar</button>
+                                                                    <form id="delete-item-form-<?php echo $item['id']; ?>" method="POST"
+                                                                        class="inline-block"><input type="hidden" name="excluir_id_item"
+                                                                            value="<?php echo $item['id']; ?>"></form>
+                                                                    <button type="button" class="btn btn-danger btn-sm js-confirm-delete"
+                                                                        data-form-id="delete-item-form-<?php echo $item['id']; ?>"
+                                                                        data-message="Tem certeza que deseja excluir o item '<?php echo htmlspecialchars($item['descricao']); ?>'?">Excluir</button>
+                                                                </div>
+                                                            <?php endif; ?>
                                                         </td>
                                                     </tr>
+                                                    <?php if (!empty($item['status_motivo'])): ?>
+                                                        <tr class="bg-gray-50">
+                                                            <td colspan="7" class="px-4 py-2 border-b border-gray-200 text-sm">
+                                                                <strong>Motivo:</strong> <?php echo htmlspecialchars($item['status_motivo']); ?>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endif; ?>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <?php
+                                    $ranking = $participantes;
+                                    usort($ranking, function ($a, $b) {
+                                        return $a['valor_unitario'] <=> $b['valor_unitario'];
+                                    });
+                                    ?>
+                                    <div class="bg-green-50 border-t px-4 py-2">
+                                        <span class="text-sm font-semibold text-gray-700">Classificação:</span>
+                                        <?php $pos = 1; foreach ($ranking as $p): ?>
+                                            <span class="inline-flex items-center gap-1 text-sm ml-3 <?php echo $pos === 1 ? 'font-bold text-green-700' : 'text-gray-600'; ?>">
+                                                <?php echo $pos; ?>º <?php echo htmlspecialchars($p['fornecedor_nome']); ?>
+                                                <?php if ($pos === 1): ?>
+                                                    <span class="text-green-600">(R$ <?php echo number_format($p['valor_unitario'], 2, ',', '.'); ?>)</span>
                                                 <?php endif; ?>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
+                                                <?php if ($pos > 1): ?>
+                                                    <span class="text-gray-500 text-xs">- R$ <?php echo number_format($p['valor_unitario'], 2, ',', '.'); ?></span>
+                                                <?php endif; ?>
+                                            </span>
+                                        <?php $pos++; endforeach; ?>
+                                    </div>
                                 </div>
                             <?php endforeach; ?>
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
 
-                <!-- --- FORMULÁRIO DE ADIÇÃO COM CAMPO LOTE --- -->
+                <!-- --- FORMULÁRIO DE ADIÇÃO --- -->
                 <?php if (isAdmin()): ?>
                     <form method="POST" class="bg-[#f7f6f6] p-6 rounded-lg border mt-8 no-print">
                         <h4 class="text-lg font-semibold text-gray-700 mb-3">Adicionar Nova Proposta de Item</h4>
@@ -578,6 +585,9 @@ try {
                             <div><label for="valor_unitario_item">Valor Unitário (R$)</label><input type="number" step="0.01"
                                     name="valor_unitario_item" id="valor_unitario_item"
                                     class="form-input w-full px-3 py-2 border rounded-lg" required></div>
+                            <div><label for="valor_unitario_ref_item">Valor Unit. Referência (R$)</label><input type="number" step="0.01"
+                                    name="valor_unitario_ref_item" id="valor_unitario_ref_item"
+                                    class="form-input w-full px-3 py-2 border rounded-lg" placeholder="Opcional"></div>
                         </div>
                         <div class="flex justify-end mt-4"><button type="submit" name="submit_item"
                                 class="btn btn-primary">Adicionar</button></div>
@@ -683,6 +693,8 @@ try {
                                 required></div>
                         <div><label>Valor Unitário (R$)</label><input type="number" step="0.01" name="edit_valor_unitario"
                                 class="form-input" required></div>
+                        <div><label>V. Unit. Referência (R$)</label><input type="number" step="0.01" name="edit_valor_unitario_ref"
+                                class="form-input" placeholder="Opcional"></div>
 
                         <div class="md:col-span-2">
                             <hr class="my-4">
@@ -721,7 +733,7 @@ try {
         </div>
     </div>
     <div id="toast-container" class="fixed top-5 right-5 z-50 space-y-2 no-print"></div>
-    <script src="js/script.js?v=2.29"></script> <!-- ATENÇÃO: Atualize a versão do JS se necessário -->
+    <script src="js/script.js?v=2.30"></script>
 </body>
 
 </html>

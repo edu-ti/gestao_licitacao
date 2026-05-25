@@ -96,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
             form.querySelector('[name="edit_modelo"]').value = button.dataset.modelo || '';
             form.querySelector('[name="edit_quantidade"]').value = button.dataset.quantidade || '';
             form.querySelector('[name="edit_valor_unitario"]').value = button.dataset.valor_unitario || '';
+            form.querySelector('[name="edit_valor_unitario_ref"]').value = button.dataset.valor_unitario_ref || '0';
             form.querySelector('[name="edit_status_item"]').value = button.dataset.status_item || 'Classificada';
             form.querySelector('[name="edit_status_motivo"]').value = button.dataset.status_motivo || '';
             
