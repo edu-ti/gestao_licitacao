@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
             form.querySelector('[name="edit_valor_unitario"]').value = button.dataset.valor_unitario || '';
             form.querySelector('[name="edit_valor_unitario_ref"]').value = button.dataset.valor_unitario_ref || '0';
             form.querySelector('[name="edit_status_item"]').value = button.dataset.status_item || 'Classificada';
+            form.querySelector('[name="edit_status_item_ref"]').value = button.dataset.status_item_ref || '';
             form.querySelector('[name="edit_status_motivo"]').value = button.dataset.status_motivo || '';
             
             modal.classList.remove('hidden');
@@ -245,5 +246,281 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // GERENCIAMENTO DE ITENS E PARTICIPANTES DINÂMICOS
+    const btnAddItem = document.getElementById('btn-add-item');
+    const itensContainer = document.getElementById('itens-container');
+    const templateItem = document.getElementById('template-item');
+    const templateParticipante = document.getElementById('template-participante');
+
+    if (btnAddItem && itensContainer && templateItem && templateParticipante) {
+        let itemIndex = 0;
+
+        function adicionarParticipante(itemBlock, itemIdx) {
+            var idx = itemBlock.querySelectorAll('.participante-row').length;
+            const clone = templateParticipante.content.cloneNode(true);
+            const row = clone.querySelector('.participante-row');
+
+            var fields = [
+                { sel: '.part-fornecedor', name: 'itens[' + itemIdx + '][participantes][' + idx + '][fornecedor_id]' },
+                { sel: '.part-fabricante', name: 'itens[' + itemIdx + '][participantes][' + idx + '][fabricante]' },
+                { sel: '.part-modelo', name: 'itens[' + itemIdx + '][participantes][' + idx + '][modelo]' },
+                { sel: '.part-valor', name: 'itens[' + itemIdx + '][participantes][' + idx + '][valor_unitario]' },
+                { sel: '.part-status', name: 'itens[' + itemIdx + '][participantes][' + idx + '][status_item]' }
+            ];
+            fields.forEach(function(f) {
+                var el = row.querySelector(f.sel);
+                if (el) el.setAttribute('name', f.name);
+            });
+
+            row.querySelector('.remover-participante').addEventListener('click', function() {
+                row.remove();
+                reindexParticipantes(itemBlock, itemIdx);
+            });
+
+            itemBlock.querySelector('.item-participantes-container').appendChild(row);
+        }
+
+        function reindexParticipantes(itemBlock, itemIdx) {
+            var rows = itemBlock.querySelectorAll('.participante-row');
+            rows.forEach(function(row, i) {
+                var fornecedorEl = row.querySelector('.part-fornecedor');
+                if (fornecedorEl) fornecedorEl.setAttribute('name', 'itens[' + itemIdx + '][participantes][' + i + '][fornecedor_id]');
+                var fabEl = row.querySelector('.part-fabricante');
+                if (fabEl) fabEl.setAttribute('name', 'itens[' + itemIdx + '][participantes][' + i + '][fabricante]');
+                var modEl = row.querySelector('.part-modelo');
+                if (modEl) modEl.setAttribute('name', 'itens[' + itemIdx + '][participantes][' + i + '][modelo]');
+                var valEl = row.querySelector('.part-valor');
+                if (valEl) valEl.setAttribute('name', 'itens[' + itemIdx + '][participantes][' + i + '][valor_unitario]');
+                var statusEl = row.querySelector('.part-status');
+                if (statusEl) statusEl.setAttribute('name', 'itens[' + itemIdx + '][participantes][' + i + '][status_item]');
+            });
+        }
+
+        function adicionarItem() {
+            const clone = templateItem.content.cloneNode(true);
+            const block = clone.querySelector('.item-bloco');
+            var idx = itemIndex;
+
+            var itemFields = [
+                { sel: '.item-numero', name: 'itens[' + idx + '][numero_item]' },
+                { sel: '.item-descricao', name: 'itens[' + idx + '][descricao_item]' },
+                { sel: '.item-qtd', name: 'itens[' + idx + '][quantidade_item]' },
+                { sel: '.item-vref', name: 'itens[' + idx + '][valor_unitario_ref_item]' },
+                { sel: '.item-status-ref', name: 'itens[' + idx + '][status_item_ref_item]' }
+            ];
+            itemFields.forEach(function(f) {
+                var el = block.querySelector(f.sel);
+                if (el) el.setAttribute('name', f.name);
+            });
+
+            block.querySelector('.remover-item').addEventListener('click', function() {
+                block.remove();
+                reindexItens();
+            });
+
+            var btnAddPart = block.querySelector('.btn-add-participante-item');
+            btnAddPart.addEventListener('click', function() {
+                adicionarParticipante(block, idx);
+            });
+
+            itensContainer.appendChild(block);
+
+            // Inicia com 1 participante
+            adicionarParticipante(block, idx);
+
+            itemIndex++;
+        }
+
+        function reindexItens() {
+            itemIndex = 0;
+            var blocks = itensContainer.querySelectorAll('.item-bloco');
+            blocks.forEach(function(block, newIdx) {
+                // Reindex item reference fields
+                var numEl = block.querySelector('.item-numero');
+                if (numEl) numEl.setAttribute('name', 'itens[' + newIdx + '][numero_item]');
+                var descEl = block.querySelector('.item-descricao');
+                if (descEl) descEl.setAttribute('name', 'itens[' + newIdx + '][descricao_item]');
+                var qtdEl = block.querySelector('.item-qtd');
+                if (qtdEl) qtdEl.setAttribute('name', 'itens[' + newIdx + '][quantidade_item]');
+                var vrefEl = block.querySelector('.item-vref');
+                if (vrefEl) vrefEl.setAttribute('name', 'itens[' + newIdx + '][valor_unitario_ref_item]');
+                var stEl = block.querySelector('.item-status-ref');
+                if (stEl) stEl.setAttribute('name', 'itens[' + newIdx + '][status_item_ref_item]');
+
+                // Reindex participantes desta linha
+                reindexParticipantes(block, newIdx);
+
+                itemIndex++;
+            });
+        }
+
+        btnAddItem.addEventListener('click', adicionarItem);
+
+        // Inicia com 1 item
+        adicionarItem();
+    }
+
+    // MODAL DE EDIÇÃO EM LOTE (ITEM COMPLETO)
+    const modalBulk = document.getElementById('modal-edit-item-bulk');
+    if (modalBulk) {
+        const closeBtnsBulk = modalBulk.querySelectorAll('.close-modal-btn');
+        closeBtnsBulk.forEach(function(btn) {
+            btn.addEventListener('click', function() { modalBulk.classList.add('hidden'); });
+        });
+        modalBulk.addEventListener('click', function(e) { if (e.target === modalBulk) modalBulk.classList.add('hidden'); });
+
+        var bulkParticipanteIndex = 0;
+
+        function adicionarParticipanteBulk(container) {
+            var idx = bulkParticipanteIndex;
+            var html = '<div class="participante-row-bulk border rounded-md p-3 bg-gray-50 relative mb-2">' +
+                '<button type="button" class="remover-participante-bulk absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-lg">&times;</button>' +
+                '<div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 pr-6">' +
+                '<div class="md:col-span-2"><label class="text-xs text-gray-600">Fornecedor</label>' +
+                '<select name="itens_bulk[0][participantes][' + idx + '][fornecedor_id]" class="part-forn-bulk form-input w-full px-2 py-1.5 border rounded text-sm" required>' +
+                '<option value="">Selecione...</option></select></div>' +
+                '<div><label class="text-xs text-gray-600">Fabricante/Marca</label>' +
+                '<input type="text" name="itens_bulk[0][participantes][' + idx + '][fabricante]" class="part-fab-bulk form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>' +
+                '<div><label class="text-xs text-gray-600">Modelo</label>' +
+                '<input type="text" name="itens_bulk[0][participantes][' + idx + '][modelo]" class="part-mod-bulk form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>' +
+                '<div><label class="text-xs text-gray-600">Valor Unitário (R$)</label>' +
+                '<input type="number" step="0.01" name="itens_bulk[0][participantes][' + idx + '][valor_unitario]" class="part-val-bulk form-input w-full px-2 py-1.5 border rounded text-sm" required></div>' +
+                '<div><label class="text-xs text-gray-600">Status</label>' +
+                '<select name="itens_bulk[0][participantes][' + idx + '][status_item]" class="part-st-bulk form-input w-full px-2 py-1.5 border rounded text-sm"></select></div>' +
+                '</div></div>';
+
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            var row = tempDiv.firstElementChild;
+
+            row.querySelector('.remover-participante-bulk').addEventListener('click', function() {
+                row.remove();
+                reindexBulkParticipantes(container);
+            });
+
+            var tmplPart = document.querySelector('#template-participante');
+            if (tmplPart) {
+                var fornSelect = row.querySelector('.part-forn-bulk');
+                var statusSelect = row.querySelector('.part-st-bulk');
+                if (fornSelect) {
+                    var tmplForn = tmplPart.content.querySelector('.part-fornecedor');
+                    if (tmplForn) fornSelect.innerHTML = tmplForn.innerHTML;
+                }
+                if (statusSelect) {
+                    var tmplSt = tmplPart.content.querySelector('.part-status');
+                    if (tmplSt) statusSelect.innerHTML = tmplSt.innerHTML;
+                }
+            }
+
+            container.appendChild(row);
+            bulkParticipanteIndex++;
+        }
+
+        function reindexBulkParticipantes(container) {
+            var rows = container.querySelectorAll('.participante-row-bulk');
+            if (rows.length === 0) { bulkParticipanteIndex = 0; return; }
+            var idx = 0;
+            rows.forEach(function(row) {
+                var selects = row.querySelectorAll('select, input');
+                selects.forEach(function(el) {
+                    var name = el.getAttribute('name');
+                    if (name) {
+                        name = name.replace(/\[participantes\]\[\d+\]/, '[participantes][' + idx + ']');
+                        el.setAttribute('name', name);
+                    }
+                });
+                idx++;
+            });
+            bulkParticipanteIndex = idx;
+        }
+
+        document.body.addEventListener('click', function(event) {
+            var btn = event.target.closest('.edit-item-bulk-btn');
+            if (!btn) return;
+
+            var loteKey = btn.getAttribute('data-lote');
+            var itemKey = btn.getAttribute('data-item');
+            var data = (window._itensData && window._itensData[loteKey] && window._itensData[loteKey][itemKey]) ? window._itensData[loteKey][itemKey] : [];
+
+            if (!data.length) return;
+
+            var itemRef = data[0];
+
+            document.getElementById('edit_bulk_old_lote').value = (loteKey === 'SEM_LOTE' ? '' : loteKey);
+            document.getElementById('edit_bulk_old_item').value = itemKey;
+            document.getElementById('edit_bulk_numero_lote').value = (loteKey === 'SEM_LOTE' ? '' : loteKey);
+            document.getElementById('edit_bulk_numero_item').value = itemRef.numero_item || '';
+            document.getElementById('edit_bulk_descricao').value = itemRef.descricao || '';
+            document.getElementById('edit_bulk_quantidade').value = itemRef.quantidade || '';
+            document.getElementById('edit_bulk_valor_unitario_ref').value = itemRef.valor_unitario_ref || '0';
+            document.getElementById('edit_bulk_status_item_ref').value = itemRef.status_item_ref || '';
+
+            var partContainer = document.getElementById('participantes-bulk-container');
+            partContainer.innerHTML = '';
+            bulkParticipanteIndex = 0;
+
+            data.forEach(function(p) {
+                var idx = bulkParticipanteIndex;
+                var html = '<div class="participante-row-bulk border rounded-md p-3 bg-gray-50 relative mb-2">' +
+                    '<button type="button" class="remover-participante-bulk absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-lg">&times;</button>' +
+                    '<div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 pr-6">' +
+                    '<div class="md:col-span-2"><label class="text-xs text-gray-600">Fornecedor</label>' +
+                    '<select name="itens_bulk[0][participantes][' + idx + '][fornecedor_id]" class="part-forn-bulk form-input w-full px-2 py-1.5 border rounded text-sm" required>' +
+                    '<option value="">Selecione...</option></select></div>' +
+                    '<div><label class="text-xs text-gray-600">Fabricante/Marca</label>' +
+                    '<input type="text" name="itens_bulk[0][participantes][' + idx + '][fabricante]" class="part-fab-bulk form-input w-full px-2 py-1.5 border rounded text-sm" value="' + (p.fabricante || '').replace(/"/g, '&quot;') + '" placeholder="Opcional"></div>' +
+                    '<div><label class="text-xs text-gray-600">Modelo</label>' +
+                    '<input type="text" name="itens_bulk[0][participantes][' + idx + '][modelo]" class="part-mod-bulk form-input w-full px-2 py-1.5 border rounded text-sm" value="' + (p.modelo || '').replace(/"/g, '&quot;') + '" placeholder="Opcional"></div>' +
+                    '<div><label class="text-xs text-gray-600">Valor Unitário (R$)</label>' +
+                    '<input type="number" step="0.01" name="itens_bulk[0][participantes][' + idx + '][valor_unitario]" class="part-val-bulk form-input w-full px-2 py-1.5 border rounded text-sm" value="' + (p.valor_unitario || '') + '" required></div>' +
+                    '<div><label class="text-xs text-gray-600">Status</label>' +
+                    '<select name="itens_bulk[0][participantes][' + idx + '][status_item]" class="part-st-bulk form-input w-full px-2 py-1.5 border rounded text-sm"></select></div>' +
+                    '</div></div>';
+
+                var tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+                var row = tempDiv.firstElementChild;
+
+                row.querySelector('.remover-participante-bulk').addEventListener('click', function() {
+                    row.remove();
+                    reindexBulkParticipantes(partContainer);
+                });
+
+                var tmplPart = document.querySelector('#template-participante');
+                if (tmplPart) {
+                    var fornSelect = row.querySelector('.part-forn-bulk');
+                    var statusSelect = row.querySelector('.part-st-bulk');
+                    if (fornSelect) {
+                        var tmplForn = tmplPart.content.querySelector('.part-fornecedor');
+                        if (tmplForn) {
+                            fornSelect.innerHTML = tmplForn.innerHTML;
+                            fornSelect.value = p.fornecedor_id || '';
+                        }
+                    }
+                    if (statusSelect) {
+                        var tmplSt = tmplPart.content.querySelector('.part-status');
+                        if (tmplSt) {
+                            statusSelect.innerHTML = tmplSt.innerHTML;
+                            statusSelect.value = p.status_item || 'Classificada';
+                        }
+                    }
+                }
+
+                partContainer.appendChild(row);
+                bulkParticipanteIndex++;
+            });
+
+            modalBulk.classList.remove('hidden');
+        });
+
+        var btnAddPartBulk = document.getElementById('btn-add-participante-bulk');
+        if (btnAddPartBulk) {
+            btnAddPartBulk.addEventListener('click', function() {
+                adicionarParticipanteBulk(document.getElementById('participantes-bulk-container'));
+            });
+        }
+    }
+
 });
 

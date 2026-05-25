@@ -9,6 +9,7 @@ require_once 'notificacoes.php';
 
 $status_list = ["Em análise", "Acolhimento de propostas", "Homologado", "Revogado", "Fracassado", "Anulado", "Adjudicado", "Suspenso"];
 $status_item_list = ["Classificada", "Desclassificada", "Em Negociação", "Aceita", "Adjudicado", "Homologado"];
+$status_item_ref_list = ["Acolhimento de Proposta", "Em Análise", "Homologando", "Revogado", "Fracassado", "Anulado", "Suspenso", "Adjudicado", "Deserto"];
 
 $mensagem = '';
 if (isset($_SESSION['mensagem_detalhes'])) {
@@ -46,6 +47,11 @@ try {
         } catch (Exception $e) {
             $pdo->exec("ALTER TABLE itens_pregoes ADD COLUMN valor_unitario_ref DECIMAL(10,2) DEFAULT 0.00");
         }
+        try {
+            $pdo->query("SELECT status_item_ref FROM itens_pregoes LIMIT 1");
+        } catch (Exception $e) {
+            $pdo->exec("ALTER TABLE itens_pregoes ADD COLUMN status_item_ref VARCHAR(50) DEFAULT NULL");
+        }
 
         if (isset($_POST['submit_anexo']) && isset($_FILES['anexo']) && $_FILES['anexo']['error'] === UPLOAD_ERR_OK) {
             $nome_original = basename($_FILES['anexo']['name']);
@@ -75,21 +81,104 @@ try {
             $_SESSION['mensagem_detalhes'] = "Anexo excluído com sucesso!";
         }
 
-        // --- ATUALIZAÇÃO PARA LOTES (INSERIR) ---
+        // --- ATUALIZAÇÃO PARA ADICIONAR ITENS (LOTE + MÚLTIPLOS ITENS + PARTICIPANTES) ---
         if (isset($_POST['submit_item'])) {
             $numero_lote = !empty($_POST['numero_lote']) ? trim($_POST['numero_lote']) : null;
-            $valor_unitario_ref = !empty($_POST['valor_unitario_ref_item']) ? $_POST['valor_unitario_ref_item'] : 0;
-            $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario, valor_unitario_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            $pdo->prepare($sql)->execute([$pregao_id, $_POST['fornecedor_id'], $numero_lote, $_POST['numero_item'], $_POST['descricao_item'], $_POST['fabricante_item'], $_POST['modelo_item'], $_POST['quantidade_item'], $_POST['valor_unitario_item'], $valor_unitario_ref]);
-            logActivity($pdo, $current_user_id, 'itens_pregoes', 'ADICIONAR ITEM', $pregao_id, "Item '" . $_POST['descricao_item'] . "' foi adicionado.");
-            $_SESSION['mensagem_detalhes'] = "Item adicionado com sucesso!";
+            $itens_post = $_POST['itens'] ?? [];
+            $inserted = 0;
+
+            if (!empty($itens_post)) {
+                $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario, valor_unitario_ref, status_item, status_item_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                $stmt = $pdo->prepare($sql);
+
+                foreach ($itens_post as $item) {
+                    $numero_item = $item['numero_item'] ?? '';
+                    $descricao = $item['descricao_item'] ?? '';
+                    $quantidade = $item['quantidade_item'] ?? 0;
+                    $valor_unitario_ref = !empty($item['valor_unitario_ref_item']) ? $item['valor_unitario_ref_item'] : 0;
+                    $status_item_ref = !empty($item['status_item_ref_item']) ? $item['status_item_ref_item'] : null;
+                    $participantes = $item['participantes'] ?? [];
+
+                    if (empty($descricao) || empty($participantes)) continue;
+
+                    foreach ($participantes as $p) {
+                        if (empty($p['fornecedor_id'])) continue;
+                        $stmt->execute([
+                            $pregao_id,
+                            $p['fornecedor_id'],
+                            $numero_lote,
+                            $numero_item,
+                            $descricao,
+                            $p['fabricante'] ?? '',
+                            $p['modelo'] ?? '',
+                            $quantidade,
+                            $p['valor_unitario'] ?? 0,
+                            $valor_unitario_ref,
+                            $p['status_item'] ?? 'Classificada',
+                            $status_item_ref
+                        ]);
+                        $inserted++;
+                    }
+                }
+            }
+            if ($inserted > 0) {
+                logActivity($pdo, $current_user_id, 'itens_pregoes', 'ADICIONAR ITENS', $pregao_id, $inserted . " registro(s) de proposta(s) adicionado(s).");
+                $_SESSION['mensagem_detalhes'] = $inserted . " proposta(s) adicionada(s) com sucesso!";
+            } else {
+                $_SESSION['mensagem_detalhes'] = "Erro: É necessário pelo menos um item com um participante.";
+            }
+        }
+
+        // --- EDIÇÃO EM LOTE DO ITEM COMPLETO (DELETE + REINSERT) ---
+        if (isset($_POST['submit_edit_item_bulk'])) {
+            $old_lote = $_POST['edit_bulk_old_lote'] ?? '';
+            $old_item = $_POST['edit_bulk_old_item'] ?? '';
+            $new_lote = !empty($_POST['edit_bulk_numero_lote']) ? trim($_POST['edit_bulk_numero_lote']) : null;
+            $new_item_numero = $_POST['edit_bulk_numero_item'] ?? $old_item;
+            $descricao = $_POST['edit_bulk_descricao'] ?? '';
+            $quantidade = $_POST['edit_bulk_quantidade'] ?? 0;
+            $valor_unitario_ref = !empty($_POST['edit_bulk_valor_unitario_ref']) ? $_POST['edit_bulk_valor_unitario_ref'] : 0;
+            $status_item_ref = !empty($_POST['edit_bulk_status_item_ref']) ? $_POST['edit_bulk_status_item_ref'] : null;
+
+            if (!empty($old_item) && !empty($descricao)) {
+                if (!empty($old_lote)) {
+                    $pdo->prepare("DELETE FROM itens_pregoes WHERE pregao_id = ? AND numero_lote = ? AND numero_item = ?")
+                        ->execute([$pregao_id, $old_lote, $old_item]);
+                } else {
+                    $pdo->prepare("DELETE FROM itens_pregoes WHERE pregao_id = ? AND (numero_lote IS NULL OR numero_lote = '') AND numero_item = ?")
+                        ->execute([$pregao_id, $old_item]);
+                }
+
+                $itens_post = $_POST['itens_bulk'] ?? [];
+                $inserted = 0;
+                if (!empty($itens_post)) {
+                    $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario, valor_unitario_ref, status_item, status_item_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    $stmt = $pdo->prepare($sql);
+                    foreach ($itens_post as $item) {
+                        $participantes = $item['participantes'] ?? [];
+                        foreach ($participantes as $p) {
+                            if (empty($p['fornecedor_id'])) continue;
+                            $stmt->execute([
+                                $pregao_id, $p['fornecedor_id'], $new_lote, $new_item_numero, $descricao,
+                                $p['fabricante'] ?? '', $p['modelo'] ?? '', $quantidade,
+                                $p['valor_unitario'] ?? 0, $valor_unitario_ref,
+                                $p['status_item'] ?? 'Classificada', $status_item_ref
+                            ]);
+                            $inserted++;
+                        }
+                    }
+                }
+                logActivity($pdo, $current_user_id, 'itens_pregoes', 'EDITAR ITEM COMPLETO', $pregao_id, "Item " . $old_item . " atualizado com " . $inserted . " participante(s).");
+                $_SESSION['mensagem_detalhes'] = "Item atualizado com " . $inserted . " participante(s)!";
+            }
         }
 
         // --- ATUALIZAÇÃO PARA LOTES (EDITAR) ---
         if (isset($_POST['submit_edit_item'])) {
             $edit_numero_lote = !empty($_POST['edit_numero_lote']) ? trim($_POST['edit_numero_lote']) : null;
             $edit_valor_unitario_ref = !empty($_POST['edit_valor_unitario_ref']) ? $_POST['edit_valor_unitario_ref'] : 0;
-            $sql = "UPDATE itens_pregoes SET fornecedor_id = ?, numero_lote = ?, numero_item = ?, descricao = ?, fabricante = ?, modelo = ?, quantidade = ?, valor_unitario = ?, valor_unitario_ref = ?, status_item = ?, status_motivo = ? WHERE id = ? AND pregao_id = ?";
+            $edit_status_item_ref = !empty($_POST['edit_status_item_ref']) ? $_POST['edit_status_item_ref'] : null;
+            $sql = "UPDATE itens_pregoes SET fornecedor_id = ?, numero_lote = ?, numero_item = ?, descricao = ?, fabricante = ?, modelo = ?, quantidade = ?, valor_unitario = ?, valor_unitario_ref = ?, status_item = ?, status_item_ref = ?, status_motivo = ? WHERE id = ? AND pregao_id = ?";
             $pdo->prepare($sql)->execute([
                 $_POST['edit_fornecedor_id'],
                 $edit_numero_lote,
@@ -101,6 +190,7 @@ try {
                 $_POST['edit_valor_unitario'],
                 $edit_valor_unitario_ref,
                 $_POST['edit_status_item'],
+                $edit_status_item_ref,
                 $_POST['edit_status_motivo'],
                 $_POST['edit_item_id'],
                 $pregao_id
@@ -171,7 +261,7 @@ try {
          FROM itens_pregoes i 
          JOIN fornecedores f ON i.fornecedor_id = f.id 
          WHERE i.pregao_id = ? 
-         ORDER BY i.numero_lote ASC, CAST(i.numero_item AS UNSIGNED) ASC, i.numero_item ASC, f.nome ASC"
+         ORDER BY i.numero_lote ASC, CAST(i.numero_item AS UNSIGNED) ASC, i.numero_item ASC, i.valor_unitario ASC"
     );
     $stmt_itens->execute([$pregao_id]);
     foreach ($stmt_itens->fetchAll(PDO::FETCH_ASSOC) as $item) {
@@ -453,6 +543,14 @@ try {
                                             <span class="text-gray-600">Qtd.: <strong><?php echo htmlspecialchars($item_ref['quantidade']); ?></strong></span>
                                             <span class="text-gray-600">V. Unit. Ref: <strong>R$ <?php echo number_format($item_ref['valor_unitario_ref'] ?? 0, 2, ',', '.'); ?></strong></span>
                                             <span class="text-gray-600">V. Total Ref: <strong>R$ <?php echo number_format($item_ref['quantidade'] * ($item_ref['valor_unitario_ref'] ?? 0), 2, ',', '.'); ?></strong></span>
+                                            <?php if (!empty($item_ref['status_item_ref'])): ?>
+                                                <span class="text-gray-600">Status: <strong class="text-blue-700"><?php echo htmlspecialchars($item_ref['status_item_ref']); ?></strong></span>
+                                            <?php endif; ?>
+                                            <?php if (isAdmin()): ?>
+                                                <button type="button" class="no-print ml-auto edit-item-bulk-btn bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm"
+                                                    data-lote="<?php echo htmlspecialchars($lote_nome); ?>"
+                                                    data-item="<?php echo htmlspecialchars($item_key); ?>">Editar Item</button>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
 
@@ -505,6 +603,7 @@ try {
                                                                         data-valor_unitario="<?php echo $item['valor_unitario']; ?>"
                                                                         data-valor_unitario_ref="<?php echo $item['valor_unitario_ref'] ?? 0; ?>"
                                                                         data-status_item="<?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?>"
+                                                                        data-status_item_ref="<?php echo htmlspecialchars($item['status_item_ref'] ?? ''); ?>"
                                                                         data-status_motivo="<?php echo htmlspecialchars($item['status_motivo'] ?? ''); ?>">Editar</button>
                                                                     <form id="delete-item-form-<?php echo $item['id']; ?>" method="POST"
                                                                         class="inline-block"><input type="hidden" name="excluir_id_item"
@@ -554,44 +653,110 @@ try {
                     <?php endforeach; ?>
                 <?php endif; ?>
 
-                <!-- --- FORMULÁRIO DE ADIÇÃO --- -->
+                <script>
+                window._itensData = {};
+                <?php foreach ($itens_agrupados as $lk => $itens): ?>
+                window._itensData[<?php echo json_encode($lk); ?>] = {};
+                <?php foreach ($itens as $ik => $participantes): ?>
+                window._itensData[<?php echo json_encode($lk); ?>][<?php echo json_encode($ik); ?>] = <?php echo json_encode($participantes, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS); ?>;
+                <?php endforeach; ?>
+                <?php endforeach; ?>
+                </script>
+
+                <!-- --- FORMULÁRIO DE ADIÇÃO (LOTE -> MÚLTIPLOS ITENS -> PARTICIPANTES) --- -->
                 <?php if (isAdmin()): ?>
-                    <form method="POST" class="bg-[#f7f6f6] p-6 rounded-lg border mt-8 no-print">
-                        <h4 class="text-lg font-semibold text-gray-700 mb-3">Adicionar Nova Proposta de Item</h4>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                            <div class="md:col-span-2"><label for="fornecedor_id">Fornecedor</label><select name="fornecedor_id"
-                                    id="fornecedor_id" class="form-input w-full px-3 py-2 border rounded-lg" required>
-                                    <option value="">Selecione...</option>
-                                    <?php foreach ($fornecedores_disponiveis as $fornecedor): ?>
-                                        <option value="<?php echo $fornecedor['id']; ?>">
-                                            <?php echo htmlspecialchars($fornecedor['nome']); ?>
-                                        </option><?php endforeach; ?>
-                                </select></div>
-                            <div><label for="numero_lote">Nº do Lote (Opcional)</label><input type="text" name="numero_lote"
-                                    id="numero_lote" class="form-input w-full px-3 py-2 border rounded-lg"
-                                    placeholder="Ex: Lote 01"></div>
-                            <div><label for="numero_item">Nº do Item</label><input type="text" name="numero_item"
-                                    id="numero_item" class="form-input w-full px-3 py-2 border rounded-lg"
-                                    placeholder="Ex: 1, 2, 3..."></div>
-                            <div class="md:col-span-2"><label for="descricao_item">Descrição</label><input type="text"
-                                    name="descricao_item" id="descricao_item"
-                                    class="form-input w-full px-3 py-2 border rounded-lg" required></div>
-                            <div><label for="fabricante_item">Fabricante/Marca</label><input type="text" name="fabricante_item"
-                                    id="fabricante_item" class="form-input w-full px-3 py-2 border rounded-lg"></div>
-                            <div><label for="modelo_item">Modelo</label><input type="text" name="modelo_item" id="modelo_item"
-                                    class="form-input w-full px-3 py-2 border rounded-lg"></div>
-                            <div><label for="quantidade_item">Quantidade</label><input type="number" name="quantidade_item"
-                                    id="quantidade_item" class="form-input w-full px-3 py-2 border rounded-lg" required></div>
-                            <div><label for="valor_unitario_item">Valor Unitário (R$)</label><input type="number" step="0.01"
-                                    name="valor_unitario_item" id="valor_unitario_item"
-                                    class="form-input w-full px-3 py-2 border rounded-lg" required></div>
-                            <div><label for="valor_unitario_ref_item">Valor Unit. Referência (R$)</label><input type="number" step="0.01"
-                                    name="valor_unitario_ref_item" id="valor_unitario_ref_item"
-                                    class="form-input w-full px-3 py-2 border rounded-lg" placeholder="Opcional"></div>
+                    <form method="POST" id="form-add-item" class="bg-[#f7f6f6] p-6 rounded-lg border mt-8 no-print">
+                        <h4 class="text-lg font-bold text-gray-700 mb-4">Adicionar Novas Propostas</h4>
+
+                        <!-- SEÇÃO: LOTE -->
+                        <div class="border rounded-lg bg-white p-4 mb-4">
+                            <div class="w-full md:w-1/3">
+                                <label for="numero_lote" class="text-sm font-medium text-gray-700">Nº do Lote (Opcional)</label>
+                                <input type="text" name="numero_lote" id="numero_lote" class="form-input w-full px-3 py-2 border rounded-lg" placeholder="Ex: Lote 01">
+                            </div>
                         </div>
-                        <div class="flex justify-end mt-4"><button type="submit" name="submit_item"
-                                class="btn btn-primary">Adicionar</button></div>
+
+                        <!-- CONTAINER DE ITENS -->
+                        <div id="itens-container"></div>
+
+                        <div class="flex justify-between items-center mb-4">
+                            <button type="button" id="btn-add-item" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded-md shadow-sm">
+                                + Adicionar Item
+                            </button>
+                        </div>
+
+                        <div class="flex justify-end mt-4">
+                            <button type="submit" name="submit_item" class="btn btn-primary">Salvar Tudo</button>
+                        </div>
                     </form>
+
+                    <!-- Template: Item (com participantes internos) -->
+                    <template id="template-item">
+                        <div class="item-bloco border rounded-lg bg-white p-4 mb-4 relative">
+                            <button type="button" class="remover-item absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-lg" title="Remover Item">&times;</button>
+                            <h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase pr-6">Dados do Item</h5>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 mb-4">
+                                <div><label class="text-xs text-gray-600">Nº do Item</label>
+                                    <input type="text" class="item-numero form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Ex: 1, 2, 3..."></div>
+                                <div><label class="text-xs text-gray-600">Status do Item</label>
+                                    <select class="item-status-ref form-input w-full px-2 py-1.5 border rounded text-sm">
+                                        <option value="">--</option>
+                                        <?php foreach ($status_item_ref_list as $sr): ?>
+                                            <option value="<?php echo htmlspecialchars($sr); ?>"><?php echo htmlspecialchars($sr); ?></option>
+                                        <?php endforeach; ?>
+                                    </select></div>
+                                <div class="md:col-span-2"><label class="text-xs text-gray-600">Descrição</label>
+                                    <input type="text" class="item-descricao form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                                <div><label class="text-xs text-gray-600">Quantidade</label>
+                                    <input type="number" class="item-qtd form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                                <div><label class="text-xs text-gray-600">Valor Unit. Referência (R$)</label>
+                                    <input type="number" step="0.01" class="item-vref form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>
+                            </div>
+
+                            <!-- Participantes deste item -->
+                            <div class="border-t pt-3 mt-2">
+                                <div class="flex justify-between items-center mb-2">
+                                    <h6 class="text-xs font-semibold text-gray-500 uppercase">Participantes deste Item</h6>
+                                    <button type="button" class="btn-add-participante-item bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-2 rounded shadow-sm">
+                                        + Participante
+                                    </button>
+                                </div>
+                                <div class="item-participantes-container space-y-2">
+                                    <!-- Participante rows inseridas via JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Template: Participante (dentro de um item) -->
+                    <template id="template-participante">
+                        <div class="participante-row border rounded-md p-3 bg-gray-50 relative">
+                            <button type="button" class="remover-participante absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-lg">&times;</button>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 pr-6">
+                                <div class="md:col-span-2">
+                                    <label class="text-xs text-gray-600">Fornecedor</label>
+                                    <select class="part-fornecedor form-input w-full px-2 py-1.5 border rounded text-sm" required>
+                                        <option value="">Selecione...</option>
+                                        <?php foreach ($fornecedores_disponiveis as $fornecedor): ?>
+                                            <option value="<?php echo $fornecedor['id']; ?>"><?php echo htmlspecialchars($fornecedor['nome']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div><label class="text-xs text-gray-600">Fabricante/Marca</label>
+                                    <input type="text" class="part-fabricante form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>
+                                <div><label class="text-xs text-gray-600">Modelo</label>
+                                    <input type="text" class="part-modelo form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>
+                                <div><label class="text-xs text-gray-600">Valor Unitário (R$)</label>
+                                    <input type="number" step="0.01" class="part-valor form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                                <div><label class="text-xs text-gray-600">Status</label>
+                                    <select class="part-status form-input w-full px-2 py-1.5 border rounded text-sm">
+                                        <?php foreach ($status_item_list as $s): ?>
+                                            <option value="<?php echo htmlspecialchars($s); ?>"><?php echo htmlspecialchars($s); ?></option>
+                                        <?php endforeach; ?>
+                                    </select></div>
+                            </div>
+                        </div>
+                    </template>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
@@ -659,6 +824,62 @@ try {
         </div>
     </div>
 
+    <!-- --- MODAL DE EDIÇÃO EM LOTE (ITEM COMPLETO) --- -->
+    <?php if (isAdmin()): ?>
+        <div id="modal-edit-item-bulk"
+            class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-start justify-center hidden overflow-y-auto no-print z-50 pt-8 pb-8">
+            <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-4xl my-0">
+                <div class="flex justify-between items-center mb-4 border-b pb-3">
+                    <h2 class="text-xl font-bold">Editar Item Completo</h2>
+                    <button class="close-modal-btn text-gray-500 text-3xl">&times;</button>
+                </div>
+                <form id="form-edit-item-bulk" method="POST">
+                    <input type="hidden" name="edit_bulk_old_lote" id="edit_bulk_old_lote">
+                    <input type="hidden" name="edit_bulk_old_item" id="edit_bulk_old_item">
+
+                    <!-- Dados do Item -->
+                    <div class="border rounded-lg bg-white p-4 mb-4">
+                        <h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase">Dados do Item (Referência)</h5>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
+                            <div><label class="text-xs text-gray-600">Nº do Lote (Opcional)</label>
+                                <input type="text" name="edit_bulk_numero_lote" id="edit_bulk_numero_lote" class="form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Ex: Lote 01"></div>
+                            <div><label class="text-xs text-gray-600">Nº do Item</label>
+                                <input type="text" name="edit_bulk_numero_item" id="edit_bulk_numero_item" class="form-input w-full px-2 py-1.5 border rounded text-sm"></div>
+                            <div class="md:col-span-2"><label class="text-xs text-gray-600">Descrição</label>
+                                <input type="text" name="edit_bulk_descricao" id="edit_bulk_descricao" class="form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                            <div><label class="text-xs text-gray-600">Quantidade</label>
+                                <input type="number" name="edit_bulk_quantidade" id="edit_bulk_quantidade" class="form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                            <div><label class="text-xs text-gray-600">Valor Unit. Referência (R$)</label>
+                                <input type="number" step="0.01" name="edit_bulk_valor_unitario_ref" id="edit_bulk_valor_unitario_ref" class="form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>
+                            <div><label class="text-xs text-gray-600">Status do Item</label>
+                                <select name="edit_bulk_status_item_ref" id="edit_bulk_status_item_ref" class="form-input w-full px-2 py-1.5 border rounded text-sm">
+                                    <option value="">--</option>
+                                    <?php foreach ($status_item_ref_list as $sr): ?>
+                                        <option value="<?php echo htmlspecialchars($sr); ?>"><?php echo htmlspecialchars($sr); ?></option>
+                                    <?php endforeach; ?>
+                                </select></div>
+                        </div>
+                    </div>
+
+                    <!-- Participantes -->
+                    <div class="border rounded-lg bg-white p-4 mb-4">
+                        <div class="flex justify-between items-center mb-3">
+                            <h5 class="text-sm font-semibold text-gray-600 uppercase">Participantes</h5>
+                            <button type="button" id="btn-add-participante-bulk" class="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm">
+                                + Adicionar Participante
+                            </button>
+                        </div>
+                        <div id="participantes-bulk-container" class="space-y-2"></div>
+                    </div>
+
+                    <div class="flex justify-end mt-4">
+                        <button type="submit" name="submit_edit_item_bulk" class="btn btn-success">Salvar Alterações</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    <?php endif; ?>
+
     <!-- --- MODAL DE EDIÇÃO COM CAMPO LOTE --- -->
     <?php if (isAdmin()): ?>
         <div id="modal-edit-item"
@@ -695,6 +916,14 @@ try {
                                 class="form-input" required></div>
                         <div><label>V. Unit. Referência (R$)</label><input type="number" step="0.01" name="edit_valor_unitario_ref"
                                 class="form-input" placeholder="Opcional"></div>
+                        <div><label>Status do Item (Ref.)</label>
+                            <select name="edit_status_item_ref" class="form-input">
+                                <option value="">--</option>
+                                <?php foreach ($status_item_ref_list as $sr): ?>
+                                    <option value="<?php echo htmlspecialchars($sr); ?>"><?php echo htmlspecialchars($sr); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
 
                         <div class="md:col-span-2">
                             <hr class="my-4">
@@ -733,7 +962,7 @@ try {
         </div>
     </div>
     <div id="toast-container" class="fixed top-5 right-5 z-50 space-y-2 no-print"></div>
-    <script src="js/script.js?v=2.30"></script>
+    <script src="js/script.js?v=2.33"></script>
 </body>
 
 </html>

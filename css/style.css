@@ -43,7 +43,7 @@ body { font-family: 'Inter', sans-serif; background-color: var(--body-bg); color
 /* ================================= */
 /* AJUSTES NOS FORMULÁRIOS           */
 /* ================================= */
-input, select, textarea {
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea {
     width: 100%;
     border-radius: 0.5rem;
     border: 1px solid var(--border-color);
@@ -77,7 +77,7 @@ input::placeholder, textarea::placeholder {
     opacity: 1;
 }
 
-input:focus, select:focus, textarea:focus {
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
