@@ -405,17 +405,9 @@ try {
                         <?php endif; ?>
                         <span
                             class="font-semibold print:block hidden"><?php echo htmlspecialchars($pregao['status']); ?></span>
-                            <div><label class="text-xs text-gray-600">Tipo de Cota</label>
-                                <select name="edit_bulk_tipo_cota" id="edit_bulk_tipo_cota"
-                                    class="form-input w-full px-2 py-1.5 border rounded text-sm">
-                                    <option value="">--</option>
-                                    <option value="Ampla Concorrência">Ampla Concorrência</option>
-                                    <option value="Cota Exclusiva">Cota Exclusiva</option>
-                                    <option value="Cota Reservada">Cota Reservada</option>
-                                </select>
-                            </div>
-                        </div>
+
                     </div>
+                </div>
                 <div class="mt-4 pt-4 border-t">
                     <h3 class="font-semibold text-gray-700">Objeto:</h3>
                     <p class="text-gray-800 mt-2 whitespace-pre-wrap"><?php echo htmlspecialchars($pregao['objeto']); ?></p>
@@ -580,7 +572,8 @@ try {
                                                         class="text-blue-700"><?php echo htmlspecialchars($item_ref['status_item_ref']); ?></strong></span>
                                             <?php endif; ?>
                                             <?php if (!empty($item_ref['tipo_cota'])): ?>
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                                                <span
+                                                    class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
                                                     <?php echo $item_ref['tipo_cota'] === 'Cota Exclusiva' ? 'bg-purple-100 text-purple-800' : ($item_ref['tipo_cota'] === 'Cota Reservada' ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'); ?>">
                                                     <?php echo htmlspecialchars($item_ref['tipo_cota']); ?>
                                                 </span>
@@ -629,7 +622,7 @@ try {
                                                 }
                                                 foreach ($participantes as $item):
                                                     $rank = $ranking_map[$item['id']] ?? '-';
-                                                ?>
+                                                    ?>
                                                     <tr>
                                                         <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm font-medium">
                                                             <?php echo $rank; ?>º <?php echo htmlspecialchars($item['fornecedor_nome']); ?>
@@ -713,7 +706,8 @@ try {
                         <div class="border rounded-lg bg-white p-4 mb-4">
                             <div class="flex flex-wrap gap-4">
                                 <div class="w-full md:w-1/3">
-                                    <label for="numero_lote" class="text-sm font-medium text-gray-700">Nº do Lote (Opcional)</label>
+                                    <label for="numero_lote" class="text-sm font-medium text-gray-700">Nº do Lote
+                                        (Opcional)</label>
                                     <input type="text" name="numero_lote" id="numero_lote"
                                         class="form-input w-full px-3 py-2 border rounded-lg" placeholder="Ex: Lote 01">
                                 </div>
@@ -762,7 +756,8 @@ try {
                                         <option value="">--</option>
                                         <?php foreach ($status_item_ref_list as $sr): ?>
                                             <option value="<?php echo htmlspecialchars($sr); ?>">
-                                                <?php echo htmlspecialchars($sr); ?></option>
+                                                <?php echo htmlspecialchars($sr); ?>
+                                            </option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
@@ -818,7 +813,8 @@ try {
                                         <option value="">Selecione...</option>
                                         <?php foreach ($fornecedores_disponiveis as $fornecedor): ?>
                                             <option value="<?php echo $fornecedor['id']; ?>">
-                                                <?php echo htmlspecialchars($fornecedor['nome']); ?></option>
+                                                <?php echo htmlspecialchars($fornecedor['nome']); ?>
+                                            </option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
@@ -957,7 +953,8 @@ try {
                                     <option value="">--</option>
                                     <?php foreach ($status_item_ref_list as $sr): ?>
                                         <option value="<?php echo htmlspecialchars($sr); ?>">
-                                            <?php echo htmlspecialchars($sr); ?></option>
+                                            <?php echo htmlspecialchars($sr); ?>
+                                        </option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>

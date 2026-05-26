@@ -128,12 +128,13 @@ try {
         $sql_tokens = "SELECT token, created_at FROM registration_tokens WHERE is_used = 0 AND created_at >= NOW() - INTERVAL 30 MINUTE ORDER BY created_at DESC";
         $active_tokens = $pdo->query($sql_tokens)->fetchAll(PDO::FETCH_ASSOC);
     }
-    $total_pregoes_geral = $pdo->query("SELECT COUNT(*) FROM pregoes")->fetchColumn();
-    $total_ganhos_fr = $pdo->query("SELECT SUM(i.quantidade * i.valor_unitario) FROM itens_pregoes i JOIN fornecedores f ON i.fornecedor_id = f.id WHERE f.nome LIKE '%FR Produto%' AND i.status_item IN ('Homologado', 'Adjudicado')")->fetchColumn();
-    $total_ganhos_poulp = $pdo->query("SELECT SUM(i.quantidade * i.valor_unitario) FROM itens_pregoes i JOIN fornecedores f ON i.fornecedor_id = f.id WHERE f.nome LIKE '%Poulp%' AND i.status_item IN ('Homologado', 'Adjudicado')")->fetchColumn();
-    $recente_stmt = $pdo->query("SELECT numero_edital FROM pregoes ORDER BY data_publicacao DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $ano_atual = date('Y');
+    $total_pregoes_geral = $pdo->query("SELECT COUNT(*) FROM pregoes WHERE YEAR(data_sessao) = " . intval($ano_atual))->fetchColumn();
+    $total_ganhos_fr = $pdo->query("SELECT SUM(i.quantidade * i.valor_unitario) FROM itens_pregoes i JOIN fornecedores f ON i.fornecedor_id = f.id JOIN pregoes p ON i.pregao_id = p.id WHERE f.nome LIKE '%FR Produto%' AND i.status_item IN ('Homologado', 'Adjudicado') AND YEAR(p.data_sessao) = " . intval($ano_atual))->fetchColumn();
+    $total_ganhos_poulp = $pdo->query("SELECT SUM(i.quantidade * i.valor_unitario) FROM itens_pregoes i JOIN fornecedores f ON i.fornecedor_id = f.id JOIN pregoes p ON i.pregao_id = p.id WHERE f.nome LIKE '%Poulp%' AND i.status_item IN ('Homologado', 'Adjudicado') AND YEAR(p.data_sessao) = " . intval($ano_atual))->fetchColumn();
+    $recente_stmt = $pdo->query("SELECT numero_edital FROM pregoes ORDER BY data_sessao DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
     $pregao_mais_recente = $recente_stmt ? $recente_stmt['numero_edital'] : 'N/D';
-    $status_counts = $pdo->query("SELECT status, COUNT(*) as total FROM pregoes GROUP BY status")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $status_counts = $pdo->query("SELECT status, COUNT(*) as total FROM pregoes WHERE YEAR(data_sessao) = " . intval($ano_atual) . " GROUP BY status")->fetchAll(PDO::FETCH_KEY_PAIR);
     $fornecedores = $pdo->query("SELECT * FROM fornecedores ORDER BY nome ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (Exception $e) {
@@ -175,9 +176,9 @@ try {
             ?>
             <!-- KPIs -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total de Pregões</h4><p class="text-3xl font-bold text-gray-800"><?php echo $total_pregoes_geral; ?></p></div>
-                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total Ganhos FR</h4><p class="text-3xl font-bold text-gray-800">R$ <?php echo number_format($total_ganhos_fr ?? 0, 2, ',', '.'); ?></p></div>
-                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total Ganhos Poulp</h4><p class="text-3xl font-bold text-gray-800">R$ <?php echo number_format($total_ganhos_poulp ?? 0, 2, ',', '.'); ?></p></div>
+                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total de Pregões <?php echo $ano_atual; ?></h4><p class="text-3xl font-bold text-gray-800"><?php echo $total_pregoes_geral; ?></p></div>
+                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total Ganhos FR <?php echo $ano_atual; ?></h4><p class="text-3xl font-bold text-gray-800">R$ <?php echo number_format($total_ganhos_fr ?? 0, 2, ',', '.'); ?></p></div>
+                <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Total Ganhos Poulp <?php echo $ano_atual; ?></h4><p class="text-3xl font-bold text-gray-800">R$ <?php echo number_format($total_ganhos_poulp ?? 0, 2, ',', '.'); ?></p></div>
                 <div class="bg-white p-6 rounded-lg shadow-lg"><h4 class="text-gray-500 text-sm font-medium">Pregão Mais Recente</h4><p class="text-xl font-bold text-gray-800 truncate"><?php echo htmlspecialchars($pregao_mais_recente); ?></p></div>
             </div>
             
