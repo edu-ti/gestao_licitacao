@@ -100,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
             form.querySelector('[name="edit_status_item"]').value = button.dataset.status_item || 'Classificada';
             form.querySelector('[name="edit_status_item_ref"]').value = button.dataset.status_item_ref || '';
             form.querySelector('[name="edit_status_motivo"]').value = button.dataset.status_motivo || '';
+            form.querySelector('[name="edit_tipo_cota"]').value = button.dataset.tipo_cota || '';
             
             modal.classList.remove('hidden');
         });
@@ -386,7 +387,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 { sel: '.item-descricao', name: 'itens[' + idx + '][descricao_item]' },
                 { sel: '.item-qtd', name: 'itens[' + idx + '][quantidade_item]' },
                 { sel: '.item-vref', name: 'itens[' + idx + '][valor_unitario_ref_item]' },
-                { sel: '.item-status-ref', name: 'itens[' + idx + '][status_item_ref_item]' }
+                { sel: '.item-status-ref', name: 'itens[' + idx + '][status_item_ref_item]' },
+                { sel: '.item-tipo-cota', name: 'itens[' + idx + '][tipo_cota_item]' }
             ];
             itemFields.forEach(function(f) {
                 var el = block.querySelector(f.sel);
@@ -426,6 +428,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (vrefEl) vrefEl.setAttribute('name', 'itens[' + newIdx + '][valor_unitario_ref_item]');
                 var stEl = block.querySelector('.item-status-ref');
                 if (stEl) stEl.setAttribute('name', 'itens[' + newIdx + '][status_item_ref_item]');
+                var tcEl = block.querySelector('.item-tipo-cota');
+                if (tcEl) tcEl.setAttribute('name', 'itens[' + newIdx + '][tipo_cota_item]');
 
                 // Reindex participantes desta linha
                 reindexParticipantes(block, newIdx);
@@ -534,6 +538,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('edit_bulk_quantidade').value = itemRef.quantidade || '';
             document.getElementById('edit_bulk_valor_unitario_ref').value = itemRef.valor_unitario_ref || '0';
             document.getElementById('edit_bulk_status_item_ref').value = itemRef.status_item_ref || '';
+            document.getElementById('edit_bulk_tipo_cota').value = itemRef.tipo_cota || '';
 
             var partContainer = document.getElementById('participantes-bulk-container');
             partContainer.innerHTML = '';

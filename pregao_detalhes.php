@@ -84,11 +84,12 @@ try {
         // --- ATUALIZAÇÃO PARA ADICIONAR ITENS (LOTE + MÚLTIPLOS ITENS + PARTICIPANTES) ---
         if (isset($_POST['submit_item'])) {
             $numero_lote = !empty($_POST['numero_lote']) ? trim($_POST['numero_lote']) : null;
+            $tipo_cota_lote = !empty($_POST['tipo_cota_lote']) ? $_POST['tipo_cota_lote'] : null;
             $itens_post = $_POST['itens'] ?? [];
             $inserted = 0;
 
             if (!empty($itens_post)) {
-                $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario, valor_unitario_ref, status_item, status_item_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario, valor_unitario_ref, status_item, status_item_ref, tipo_cota) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 $stmt = $pdo->prepare($sql);
 
                 foreach ($itens_post as $item) {
@@ -97,6 +98,7 @@ try {
                     $quantidade = $item['quantidade_item'] ?? 0;
                     $valor_unitario_ref = !empty($item['valor_unitario_ref_item']) ? $item['valor_unitario_ref_item'] : 0;
                     $status_item_ref = !empty($item['status_item_ref_item']) ? $item['status_item_ref_item'] : null;
+                    $tipo_cota_item = !empty($item['tipo_cota_item']) ? $item['tipo_cota_item'] : $tipo_cota_lote;
                     $participantes = $item['participantes'] ?? [];
 
                     if (empty($descricao) || empty($participantes))
@@ -117,7 +119,8 @@ try {
                             $p['valor_unitario'] ?? 0,
                             $valor_unitario_ref,
                             $p['status_item'] ?? 'Classificada',
-                            $status_item_ref
+                            $status_item_ref,
+                            $tipo_cota_item
                         ]);
                         $inserted++;
                     }
@@ -141,6 +144,7 @@ try {
             $quantidade = $_POST['edit_bulk_quantidade'] ?? 0;
             $valor_unitario_ref = !empty($_POST['edit_bulk_valor_unitario_ref']) ? $_POST['edit_bulk_valor_unitario_ref'] : 0;
             $status_item_ref = !empty($_POST['edit_bulk_status_item_ref']) ? $_POST['edit_bulk_status_item_ref'] : null;
+            $tipo_cota = !empty($_POST['edit_bulk_tipo_cota']) ? $_POST['edit_bulk_tipo_cota'] : null;
 
             if (!empty($old_item) && !empty($descricao)) {
                 if (!empty($old_lote)) {
@@ -154,7 +158,7 @@ try {
                 $itens_post = $_POST['itens_bulk'] ?? [];
                 $inserted = 0;
                 if (!empty($itens_post)) {
-                    $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario, valor_unitario_ref, status_item, status_item_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    $sql = "INSERT INTO itens_pregoes (pregao_id, fornecedor_id, numero_lote, numero_item, descricao, fabricante, modelo, quantidade, valor_unitario, valor_unitario_ref, status_item, status_item_ref, tipo_cota) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                     $stmt = $pdo->prepare($sql);
                     foreach ($itens_post as $item) {
                         $participantes = $item['participantes'] ?? [];
@@ -173,7 +177,8 @@ try {
                                 $p['valor_unitario'] ?? 0,
                                 $valor_unitario_ref,
                                 $p['status_item'] ?? 'Classificada',
-                                $status_item_ref
+                                $status_item_ref,
+                                $tipo_cota
                             ]);
                             $inserted++;
                         }
@@ -189,7 +194,8 @@ try {
             $edit_numero_lote = !empty($_POST['edit_numero_lote']) ? trim($_POST['edit_numero_lote']) : null;
             $edit_valor_unitario_ref = !empty($_POST['edit_valor_unitario_ref']) ? $_POST['edit_valor_unitario_ref'] : 0;
             $edit_status_item_ref = !empty($_POST['edit_status_item_ref']) ? $_POST['edit_status_item_ref'] : null;
-            $sql = "UPDATE itens_pregoes SET fornecedor_id = ?, numero_lote = ?, numero_item = ?, descricao = ?, fabricante = ?, modelo = ?, quantidade = ?, valor_unitario = ?, valor_unitario_ref = ?, status_item = ?, status_item_ref = ?, status_motivo = ? WHERE id = ? AND pregao_id = ?";
+            $edit_tipo_cota = !empty($_POST['edit_tipo_cota']) ? $_POST['edit_tipo_cota'] : null;
+            $sql = "UPDATE itens_pregoes SET fornecedor_id = ?, numero_lote = ?, numero_item = ?, descricao = ?, fabricante = ?, modelo = ?, quantidade = ?, valor_unitario = ?, valor_unitario_ref = ?, status_item = ?, status_item_ref = ?, status_motivo = ?, tipo_cota = ? WHERE id = ? AND pregao_id = ?";
             $pdo->prepare($sql)->execute([
                 $_POST['edit_fornecedor_id'],
                 $edit_numero_lote,
@@ -203,6 +209,7 @@ try {
                 $_POST['edit_status_item'],
                 $edit_status_item_ref,
                 $_POST['edit_status_motivo'],
+                $edit_tipo_cota,
                 $_POST['edit_item_id'],
                 $pregao_id
             ]);
@@ -398,8 +405,17 @@ try {
                         <?php endif; ?>
                         <span
                             class="font-semibold print:block hidden"><?php echo htmlspecialchars($pregao['status']); ?></span>
+                            <div><label class="text-xs text-gray-600">Tipo de Cota</label>
+                                <select name="edit_bulk_tipo_cota" id="edit_bulk_tipo_cota"
+                                    class="form-input w-full px-2 py-1.5 border rounded text-sm">
+                                    <option value="">--</option>
+                                    <option value="Ampla Concorrência">Ampla Concorrência</option>
+                                    <option value="Cota Exclusiva">Cota Exclusiva</option>
+                                    <option value="Cota Reservada">Cota Reservada</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
-                </div>
                 <div class="mt-4 pt-4 border-t">
                     <h3 class="font-semibold text-gray-700">Objeto:</h3>
                     <p class="text-gray-800 mt-2 whitespace-pre-wrap"><?php echo htmlspecialchars($pregao['objeto']); ?></p>
@@ -563,6 +579,12 @@ try {
                                                 <span class="text-gray-600">Status: <strong
                                                         class="text-blue-700"><?php echo htmlspecialchars($item_ref['status_item_ref']); ?></strong></span>
                                             <?php endif; ?>
+                                            <?php if (!empty($item_ref['tipo_cota'])): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                                                    <?php echo $item_ref['tipo_cota'] === 'Cota Exclusiva' ? 'bg-purple-100 text-purple-800' : ($item_ref['tipo_cota'] === 'Cota Reservada' ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'); ?>">
+                                                    <?php echo htmlspecialchars($item_ref['tipo_cota']); ?>
+                                                </span>
+                                            <?php endif; ?>
                                             <?php if (isAdmin()): ?>
                                                 <button type="button"
                                                     class="no-print ml-auto edit-item-bulk-btn bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm"
@@ -594,10 +616,23 @@ try {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <?php foreach ($participantes as $item): ?>
+                                                <?php
+                                                $ranking_map = [];
+                                                $sorted = $participantes;
+                                                usort($sorted, function ($a, $b) {
+                                                    return $a['valor_unitario'] <=> $b['valor_unitario'];
+                                                });
+                                                $pos = 1;
+                                                foreach ($sorted as $rp) {
+                                                    $ranking_map[$rp['id']] = $pos;
+                                                    $pos++;
+                                                }
+                                                foreach ($participantes as $item):
+                                                    $rank = $ranking_map[$item['id']] ?? '-';
+                                                ?>
                                                     <tr>
                                                         <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm font-medium">
-                                                            <?php echo htmlspecialchars($item['fornecedor_nome']); ?>
+                                                            <?php echo $rank; ?>º <?php echo htmlspecialchars($item['fornecedor_nome']); ?>
                                                         </td>
                                                         <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm">
                                                             <?php echo htmlspecialchars($item['fabricante'] ?? 'N/D'); ?>
@@ -630,7 +665,8 @@ try {
                                                                         data-valor_unitario_ref="<?php echo $item['valor_unitario_ref'] ?? 0; ?>"
                                                                         data-status_item="<?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?>"
                                                                         data-status_item_ref="<?php echo htmlspecialchars($item['status_item_ref'] ?? ''); ?>"
-                                                                        data-status_motivo="<?php echo htmlspecialchars($item['status_motivo'] ?? ''); ?>">Editar</button>
+                                                                        data-status_motivo="<?php echo htmlspecialchars($item['status_motivo'] ?? ''); ?>"
+                                                                        data-tipo_cota="<?php echo htmlspecialchars($item['tipo_cota'] ?? ''); ?>">Editar</button>
                                                                     <form id="delete-item-form-<?php echo $item['id']; ?>" method="POST"
                                                                         class="inline-block"><input type="hidden" name="excluir_id_item"
                                                                             value="<?php echo $item['id']; ?>"></form>
@@ -651,31 +687,6 @@ try {
                                                 <?php endforeach; ?>
                                             </tbody>
                                         </table>
-                                    </div>
-
-                                    <?php
-                                    $ranking = $participantes;
-                                    usort($ranking, function ($a, $b) {
-                                        return $a['valor_unitario'] <=> $b['valor_unitario'];
-                                    });
-                                    ?>
-                                    <div class="bg-green-50 border-t px-4 py-2">
-                                        <span class="text-sm font-semibold text-gray-700">Classificação:</span>
-                                        <?php $pos = 1;
-                                        foreach ($ranking as $p): ?>
-                                            <span
-                                                class="inline-flex items-center gap-1 text-sm ml-3 <?php echo $pos === 1 ? 'font-bold text-green-700' : 'text-gray-600'; ?>">
-                                                <?php echo $pos; ?>º <?php echo htmlspecialchars($p['fornecedor_nome']); ?>
-                                                <?php if ($pos === 1): ?>
-                                                    <span class="text-green-600">(R$
-                                                        <?php echo number_format($p['valor_unitario'], 2, ',', '.'); ?>)</span>
-                                                <?php endif; ?>
-                                                <?php if ($pos > 1): ?>
-                                                    <span class="text-gray-500 text-xs">- R$
-                                                        <?php echo number_format($p['valor_unitario'], 2, ',', '.'); ?></span>
-                                                <?php endif; ?>
-                                            </span>
-                                            <?php $pos++; endforeach; ?>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
@@ -700,10 +711,22 @@ try {
 
                         <!-- SEÇÃO: LOTE -->
                         <div class="border rounded-lg bg-white p-4 mb-4">
-                            <div class="w-full md:w-1/3">
-                                <label for="numero_lote" class="text-sm font-medium text-gray-700">Nº do Lote (Opcional)</label>
-                                <input type="text" name="numero_lote" id="numero_lote"
-                                    class="form-input w-full px-3 py-2 border rounded-lg" placeholder="Ex: Lote 01">
+                            <div class="flex flex-wrap gap-4">
+                                <div class="w-full md:w-1/3">
+                                    <label for="numero_lote" class="text-sm font-medium text-gray-700">Nº do Lote (Opcional)</label>
+                                    <input type="text" name="numero_lote" id="numero_lote"
+                                        class="form-input w-full px-3 py-2 border rounded-lg" placeholder="Ex: Lote 01">
+                                </div>
+                                <div class="w-full md:w-1/3">
+                                    <label for="tipo_cota_lote" class="text-sm font-medium text-gray-700">Tipo de Cota</label>
+                                    <select name="tipo_cota_lote" id="tipo_cota_lote"
+                                        class="form-input w-full px-3 py-2 border rounded-lg">
+                                        <option value="">Padrão (por item)</option>
+                                        <option value="Ampla Concorrência">Ampla Concorrência</option>
+                                        <option value="Cota Exclusiva">Cota Exclusiva</option>
+                                        <option value="Cota Reservada">Cota Reservada</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
@@ -755,6 +778,14 @@ try {
                                     <input type="number" step="0.01"
                                         class="item-vref form-input w-full px-2 py-1.5 border rounded text-sm"
                                         placeholder="Opcional">
+                                </div>
+                                <div><label class="text-xs text-gray-600">Tipo de Cota</label>
+                                    <select class="item-tipo-cota form-input w-full px-2 py-1.5 border rounded text-sm">
+                                        <option value="">--</option>
+                                        <option value="Ampla Concorrência">Ampla Concorrência</option>
+                                        <option value="Cota Exclusiva">Cota Exclusiva</option>
+                                        <option value="Cota Reservada">Cota Reservada</option>
+                                    </select>
                                 </div>
                             </div>
 
@@ -930,6 +961,15 @@ try {
                                     <?php endforeach; ?>
                                 </select>
                             </div>
+                            <div><label class="text-xs text-gray-600">Tipo de Cota</label>
+                                <select name="edit_bulk_tipo_cota" id="edit_bulk_tipo_cota"
+                                    class="form-input w-full px-2 py-1.5 border rounded text-sm">
+                                    <option value="">--</option>
+                                    <option value="Ampla Concorrência">Ampla Concorrência</option>
+                                    <option value="Cota Exclusiva">Cota Exclusiva</option>
+                                    <option value="Cota Reservada">Cota Reservada</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
@@ -997,6 +1037,14 @@ try {
                                     <option value="<?php echo htmlspecialchars($sr); ?>"><?php echo htmlspecialchars($sr); ?>
                                     </option>
                                 <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div><label>Tipo de Cota</label>
+                            <select name="edit_tipo_cota" class="form-input">
+                                <option value="">--</option>
+                                <option value="Ampla Concorrência">Ampla Concorrência</option>
+                                <option value="Cota Exclusiva">Cota Exclusiva</option>
+                                <option value="Cota Reservada">Cota Reservada</option>
                             </select>
                         </div>
 
