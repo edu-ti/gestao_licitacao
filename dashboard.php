@@ -116,7 +116,7 @@ try {
     $total_pages = ceil($total_pregoes / $limit);
     $params[':limit'] = $limit;
     $params[':offset'] = $offset;
-    $sql_pregoes = "SELECT * FROM pregoes" . $where_sql . " ORDER BY data_publicacao DESC LIMIT :limit OFFSET :offset";
+    $sql_pregoes = "SELECT * FROM pregoes" . $where_sql . " ORDER BY data_sessao DESC LIMIT :limit OFFSET :offset";
     $stmt_pregoes = $pdo->prepare($sql_pregoes);
     foreach ($params as $key => &$val) {
         $stmt_pregoes->bindValue($key, $val, is_int($val) ? PDO::PARAM_INT : PDO::PARAM_STR);
