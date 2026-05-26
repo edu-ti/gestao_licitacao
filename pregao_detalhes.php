@@ -762,14 +762,14 @@ try {
                             <div class="border-t pt-3 mt-2">
                                 <div class="flex justify-between items-center mb-2">
                                     <h6 class="text-xs font-semibold text-gray-500 uppercase">Participantes deste Item</h6>
-                                    <button type="button"
-                                        class="btn-add-participante-item bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-2 rounded shadow-sm">
-                                        + Participante
-                                    </button>
                                 </div>
                                 <div class="item-participantes-container space-y-2">
                                     <!-- Participante rows inseridas via JS -->
                                 </div>
+                                <button type="button"
+                                    class="btn-add-participante-item bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-2 rounded shadow-sm mt-2">
+                                    + Participante
+                                </button>
                             </div>
                         </div>
                     </template>
@@ -935,14 +935,14 @@ try {
 
                     <!-- Participantes -->
                     <div class="border rounded-lg bg-white p-4 mb-4">
-                        <div class="flex justify-between items-center mb-3">
+                        <div class="mb-3">
                             <h5 class="text-sm font-semibold text-gray-600 uppercase">Participantes</h5>
-                            <button type="button" id="btn-add-participante-bulk"
-                                class="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm">
-                                + Adicionar Participante
-                            </button>
                         </div>
                         <div id="participantes-bulk-container" class="space-y-2"></div>
+                        <button type="button" id="btn-add-participante-bulk"
+                            class="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm mt-2">
+                            + Adicionar Participante
+                        </button>
                     </div>
 
                     <div class="flex justify-end mt-4">
