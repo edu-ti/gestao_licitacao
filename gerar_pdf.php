@@ -1,11 +1,4 @@
 <?php
-// ===================================================================
-// MODO DE DIAGNÓSTICO: Habilitando a exibição de todos os erros
-// ===================================================================
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
 require_once(__DIR__ . '/auth.php');
 require_once(__DIR__ . '/Database.php');
 require_once(__DIR__ . '/fpdf/fpdf.php');
@@ -85,7 +78,15 @@ function toISO($string) {
     if ($string === null || $string === '') {
         return '';
     }
-    return iconv('UTF-8', 'ISO-8859-1//TRANSLIT', $string);
+    $string = @mb_convert_encoding($string, 'UTF-8', 'UTF-8');
+    if ($string === false) {
+        $string = '';
+    }
+    $result = @iconv('UTF-8', 'ISO-8859-1//TRANSLIT//IGNORE', $string);
+    if ($result === false) {
+        $result = preg_replace('/[^\x20-\x7E\xA0-\xFF]/', '', $string);
+    }
+    return $result;
 }
 
 try {

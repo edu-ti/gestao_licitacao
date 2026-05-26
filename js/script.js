@@ -186,9 +186,11 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelBtn.addEventListener('click', () => confirmModal.classList.add('hidden'));
     }
     
-    // AJAX PARA ADICIONAR FORNECEDOR E MÁSCARA CNPJ
+    // AJAX PARA ADICIONAR FORNECEDOR, MÁSCARA CNPJ E AUTO-PREENCHIMENTO
     const fornecedorForm = document.getElementById('form-fornecedor');
     const cnpjInput = document.getElementById('cnpj_fornecedor_input');
+    const cnpjStatus = document.getElementById('cnpj-status-text');
+    let cnpjBuscaTimer = null;
 
     if (cnpjInput) {
         cnpjInput.addEventListener('input', (e) => {
@@ -198,7 +200,72 @@ document.addEventListener('DOMContentLoaded', () => {
             value = value.replace(/\.(\d{3})(\d)/, '.$1/$2');
             value = value.replace(/(\d{4})(\d)/, '$1-$2');
             e.target.value = value.slice(0, 18);
+
+            const digits = value.replace(/\D/g, '');
+            if (digits.length === 14) {
+                if (cnpjBuscaTimer) clearTimeout(cnpjBuscaTimer);
+                cnpjBuscaTimer = setTimeout(() => buscarCNPJ(digits), 500);
+            } else if (digits.length > 2 && cnpjStatus) {
+                cnpjStatus.textContent = 'Digite 14 dígitos para buscar...';
+                cnpjStatus.className = 'text-xs text-gray-400';
+            } else if (cnpjStatus) {
+                cnpjStatus.textContent = '';
+            }
         });
+    }
+
+    async function buscarCNPJ(cnpj) {
+        if (!cnpjStatus) return;
+        cnpjStatus.textContent = 'Buscando dados do CNPJ...';
+        cnpjStatus.className = 'text-xs text-blue-600';
+
+        try {
+            const response = await fetch('api_handler.php?action=buscar_cnpj&cnpj=' + cnpj);
+            const result = await response.json();
+
+            if (result.success && result.data) {
+                const d = result.data;
+
+                const nomeInput = document.querySelector('[name="nome_fornecedor"]');
+                const fantasiaInput = document.getElementById('nome_fantasia_fornecedor');
+                const porteSelect = document.getElementById('porte_fornecedor');
+                const enderecoInput = document.getElementById('endereco_fornecedor');
+                const bairroInput = document.getElementById('bairro_fornecedor');
+                const cidadeInput = document.getElementById('cidade_fornecedor');
+                const estadoSelect = document.getElementById('estado_fornecedor_select');
+                const cepInput = document.getElementById('cep_fornecedor');
+
+                if (nomeInput && d.razao_social) nomeInput.value = d.razao_social;
+                if (fantasiaInput && d.nome_fantasia) fantasiaInput.value = d.nome_fantasia;
+
+                if (porteSelect && d.porte) {
+                    if (d.porte === 'ME' || d.porte === 'EPP' || d.porte === 'DEMAIS') {
+                        porteSelect.value = d.porte;
+                    } else {
+                        porteSelect.value = 'GRANDE';
+                    }
+                }
+
+                let endereco = d.logradouro || '';
+                if (d.numero) endereco += ', ' + d.numero;
+                if (d.complemento) endereco += ' - ' + d.complemento;
+                if (enderecoInput && endereco) enderecoInput.value = endereco;
+
+                if (bairroInput && d.bairro) bairroInput.value = d.bairro;
+                if (cidadeInput && d.municipio) cidadeInput.value = d.municipio;
+                if (estadoSelect && d.uf) estadoSelect.value = d.uf;
+                if (cepInput && d.cep) cepInput.value = d.cep;
+
+                cnpjStatus.textContent = 'Dados preenchidos automaticamente';
+                cnpjStatus.className = 'text-xs text-green-600';
+            } else {
+                cnpjStatus.textContent = result.error || 'CNPJ não encontrado';
+                cnpjStatus.className = 'text-xs text-red-500';
+            }
+        } catch (error) {
+            cnpjStatus.textContent = 'Erro ao consultar CNPJ. Preencha manualmente.';
+            cnpjStatus.className = 'text-xs text-red-500';
+        }
     }
     
     if(fornecedorForm) {

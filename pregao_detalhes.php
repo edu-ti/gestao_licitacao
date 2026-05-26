@@ -9,7 +9,7 @@ require_once 'notificacoes.php';
 
 $status_list = ["Em análise", "Acolhimento de propostas", "Homologado", "Revogado", "Fracassado", "Anulado", "Adjudicado", "Suspenso"];
 $status_item_list = ["Classificada", "Desclassificada", "Em Negociação", "Aceita", "Adjudicado", "Homologado"];
-$status_item_ref_list = ["Acolhimento de Proposta", "Em Análise", "Homologando", "Revogado", "Fracassado", "Anulado", "Suspenso", "Adjudicado", "Deserto"];
+$status_item_ref_list = ["Acolhimento de Proposta", "Em Análise", "Homologado", "Revogado", "Fracassado", "Anulado", "Suspenso", "Adjudicado", "Deserto"];
 
 $mensagem = '';
 if (isset($_SESSION['mensagem_detalhes'])) {
@@ -99,10 +99,12 @@ try {
                     $status_item_ref = !empty($item['status_item_ref_item']) ? $item['status_item_ref_item'] : null;
                     $participantes = $item['participantes'] ?? [];
 
-                    if (empty($descricao) || empty($participantes)) continue;
+                    if (empty($descricao) || empty($participantes))
+                        continue;
 
                     foreach ($participantes as $p) {
-                        if (empty($p['fornecedor_id'])) continue;
+                        if (empty($p['fornecedor_id']))
+                            continue;
                         $stmt->execute([
                             $pregao_id,
                             $p['fornecedor_id'],
@@ -157,12 +159,21 @@ try {
                     foreach ($itens_post as $item) {
                         $participantes = $item['participantes'] ?? [];
                         foreach ($participantes as $p) {
-                            if (empty($p['fornecedor_id'])) continue;
+                            if (empty($p['fornecedor_id']))
+                                continue;
                             $stmt->execute([
-                                $pregao_id, $p['fornecedor_id'], $new_lote, $new_item_numero, $descricao,
-                                $p['fabricante'] ?? '', $p['modelo'] ?? '', $quantidade,
-                                $p['valor_unitario'] ?? 0, $valor_unitario_ref,
-                                $p['status_item'] ?? 'Classificada', $status_item_ref
+                                $pregao_id,
+                                $p['fornecedor_id'],
+                                $new_lote,
+                                $new_item_numero,
+                                $descricao,
+                                $p['fabricante'] ?? '',
+                                $p['modelo'] ?? '',
+                                $quantidade,
+                                $p['valor_unitario'] ?? 0,
+                                $valor_unitario_ref,
+                                $p['status_item'] ?? 'Classificada',
+                                $status_item_ref
                             ]);
                             $inserted++;
                         }
@@ -538,16 +549,23 @@ try {
                                 <div class="border rounded-lg mb-4 overflow-hidden shadow-sm">
                                     <div class="bg-blue-50 px-4 py-3 border-b">
                                         <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-                                            <span class="font-semibold text-gray-800">Item <span class="text-blue-700"><?php echo htmlspecialchars($item_ref['numero_item']); ?></span></span>
-                                            <span class="flex-1 text-gray-700 min-w-[200px]"><?php echo htmlspecialchars($item_ref['descricao']); ?></span>
-                                            <span class="text-gray-600">Qtd.: <strong><?php echo htmlspecialchars($item_ref['quantidade']); ?></strong></span>
-                                            <span class="text-gray-600">V. Unit. Ref: <strong>R$ <?php echo number_format($item_ref['valor_unitario_ref'] ?? 0, 2, ',', '.'); ?></strong></span>
-                                            <span class="text-gray-600">V. Total Ref: <strong>R$ <?php echo number_format($item_ref['quantidade'] * ($item_ref['valor_unitario_ref'] ?? 0), 2, ',', '.'); ?></strong></span>
+                                            <span class="font-semibold text-gray-800">Item <span
+                                                    class="text-blue-700"><?php echo htmlspecialchars($item_ref['numero_item']); ?></span></span>
+                                            <span
+                                                class="flex-1 text-gray-700 min-w-[200px]"><?php echo htmlspecialchars($item_ref['descricao']); ?></span>
+                                            <span class="text-gray-600">Qtd.:
+                                                <strong><?php echo htmlspecialchars($item_ref['quantidade']); ?></strong></span>
+                                            <span class="text-gray-600">V. Unit. Ref: <strong>R$
+                                                    <?php echo number_format($item_ref['valor_unitario_ref'] ?? 0, 2, ',', '.'); ?></strong></span>
+                                            <span class="text-gray-600">V. Total Ref: <strong>R$
+                                                    <?php echo number_format($item_ref['quantidade'] * ($item_ref['valor_unitario_ref'] ?? 0), 2, ',', '.'); ?></strong></span>
                                             <?php if (!empty($item_ref['status_item_ref'])): ?>
-                                                <span class="text-gray-600">Status: <strong class="text-blue-700"><?php echo htmlspecialchars($item_ref['status_item_ref']); ?></strong></span>
+                                                <span class="text-gray-600">Status: <strong
+                                                        class="text-blue-700"><?php echo htmlspecialchars($item_ref['status_item_ref']); ?></strong></span>
                                             <?php endif; ?>
                                             <?php if (isAdmin()): ?>
-                                                <button type="button" class="no-print ml-auto edit-item-bulk-btn bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm"
+                                                <button type="button"
+                                                    class="no-print ml-auto edit-item-bulk-btn bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm"
                                                     data-lote="<?php echo htmlspecialchars($lote_nome); ?>"
                                                     data-item="<?php echo htmlspecialchars($item_key); ?>">Editar Item</button>
                                             <?php endif; ?>
@@ -558,13 +576,21 @@ try {
                                         <table class="min-w-full leading-normal">
                                             <thead class="bg-[#f7f6f6]">
                                                 <tr>
-                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Participante</th>
-                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Fabricante</th>
-                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Modelo</th>
-                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">V. Unit.</th>
-                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">V. Total</th>
-                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                                                    <th class="no-print px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Ações</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
+                                                        Participante</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
+                                                        Fabricante</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Modelo
+                                                    </th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">V.
+                                                        Unit.</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">V.
+                                                        Total</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Status
+                                                    </th>
+                                                    <th
+                                                        class="no-print px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase">
+                                                        Ações</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -635,17 +661,21 @@ try {
                                     ?>
                                     <div class="bg-green-50 border-t px-4 py-2">
                                         <span class="text-sm font-semibold text-gray-700">Classificação:</span>
-                                        <?php $pos = 1; foreach ($ranking as $p): ?>
-                                            <span class="inline-flex items-center gap-1 text-sm ml-3 <?php echo $pos === 1 ? 'font-bold text-green-700' : 'text-gray-600'; ?>">
+                                        <?php $pos = 1;
+                                        foreach ($ranking as $p): ?>
+                                            <span
+                                                class="inline-flex items-center gap-1 text-sm ml-3 <?php echo $pos === 1 ? 'font-bold text-green-700' : 'text-gray-600'; ?>">
                                                 <?php echo $pos; ?>º <?php echo htmlspecialchars($p['fornecedor_nome']); ?>
                                                 <?php if ($pos === 1): ?>
-                                                    <span class="text-green-600">(R$ <?php echo number_format($p['valor_unitario'], 2, ',', '.'); ?>)</span>
+                                                    <span class="text-green-600">(R$
+                                                        <?php echo number_format($p['valor_unitario'], 2, ',', '.'); ?>)</span>
                                                 <?php endif; ?>
                                                 <?php if ($pos > 1): ?>
-                                                    <span class="text-gray-500 text-xs">- R$ <?php echo number_format($p['valor_unitario'], 2, ',', '.'); ?></span>
+                                                    <span class="text-gray-500 text-xs">- R$
+                                                        <?php echo number_format($p['valor_unitario'], 2, ',', '.'); ?></span>
                                                 <?php endif; ?>
                                             </span>
-                                        <?php $pos++; endforeach; ?>
+                                            <?php $pos++; endforeach; ?>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
@@ -654,13 +684,13 @@ try {
                 <?php endif; ?>
 
                 <script>
-                window._itensData = {};
-                <?php foreach ($itens_agrupados as $lk => $itens): ?>
-                window._itensData[<?php echo json_encode($lk); ?>] = {};
-                <?php foreach ($itens as $ik => $participantes): ?>
-                window._itensData[<?php echo json_encode($lk); ?>][<?php echo json_encode($ik); ?>] = <?php echo json_encode($participantes, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS); ?>;
-                <?php endforeach; ?>
-                <?php endforeach; ?>
+                    window._itensData = {};
+                    <?php foreach ($itens_agrupados as $lk => $itens): ?>
+                        window._itensData[<?php echo json_encode($lk); ?>] = {};
+                        <?php foreach ($itens as $ik => $participantes): ?>
+                            window._itensData[<?php echo json_encode($lk); ?>][<?php echo json_encode($ik); ?>] = <?php echo json_encode($participantes, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS); ?>;
+                        <?php endforeach; ?>
+                    <?php endforeach; ?>
                 </script>
 
                 <!-- --- FORMULÁRIO DE ADIÇÃO (LOTE -> MÚLTIPLOS ITENS -> PARTICIPANTES) --- -->
@@ -672,7 +702,8 @@ try {
                         <div class="border rounded-lg bg-white p-4 mb-4">
                             <div class="w-full md:w-1/3">
                                 <label for="numero_lote" class="text-sm font-medium text-gray-700">Nº do Lote (Opcional)</label>
-                                <input type="text" name="numero_lote" id="numero_lote" class="form-input w-full px-3 py-2 border rounded-lg" placeholder="Ex: Lote 01">
+                                <input type="text" name="numero_lote" id="numero_lote"
+                                    class="form-input w-full px-3 py-2 border rounded-lg" placeholder="Ex: Lote 01">
                             </div>
                         </div>
 
@@ -680,7 +711,8 @@ try {
                         <div id="itens-container"></div>
 
                         <div class="flex justify-between items-center mb-4">
-                            <button type="button" id="btn-add-item" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded-md shadow-sm">
+                            <button type="button" id="btn-add-item"
+                                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded-md shadow-sm">
                                 + Adicionar Item
                             </button>
                         </div>
@@ -693,31 +725,45 @@ try {
                     <!-- Template: Item (com participantes internos) -->
                     <template id="template-item">
                         <div class="item-bloco border rounded-lg bg-white p-4 mb-4 relative">
-                            <button type="button" class="remover-item absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-lg" title="Remover Item">&times;</button>
+                            <button type="button"
+                                class="remover-item absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-lg"
+                                title="Remover Item">&times;</button>
                             <h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase pr-6">Dados do Item</h5>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 mb-4">
                                 <div><label class="text-xs text-gray-600">Nº do Item</label>
-                                    <input type="text" class="item-numero form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Ex: 1, 2, 3..."></div>
+                                    <input type="text" class="item-numero form-input w-full px-2 py-1.5 border rounded text-sm"
+                                        placeholder="Ex: 1, 2, 3...">
+                                </div>
                                 <div><label class="text-xs text-gray-600">Status do Item</label>
                                     <select class="item-status-ref form-input w-full px-2 py-1.5 border rounded text-sm">
                                         <option value="">--</option>
                                         <?php foreach ($status_item_ref_list as $sr): ?>
-                                            <option value="<?php echo htmlspecialchars($sr); ?>"><?php echo htmlspecialchars($sr); ?></option>
+                                            <option value="<?php echo htmlspecialchars($sr); ?>">
+                                                <?php echo htmlspecialchars($sr); ?></option>
                                         <?php endforeach; ?>
-                                    </select></div>
+                                    </select>
+                                </div>
                                 <div class="md:col-span-2"><label class="text-xs text-gray-600">Descrição</label>
-                                    <input type="text" class="item-descricao form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                                    <input type="text"
+                                        class="item-descricao form-input w-full px-2 py-1.5 border rounded text-sm" required>
+                                </div>
                                 <div><label class="text-xs text-gray-600">Quantidade</label>
-                                    <input type="number" class="item-qtd form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                                    <input type="number" class="item-qtd form-input w-full px-2 py-1.5 border rounded text-sm"
+                                        required>
+                                </div>
                                 <div><label class="text-xs text-gray-600">Valor Unit. Referência (R$)</label>
-                                    <input type="number" step="0.01" class="item-vref form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>
+                                    <input type="number" step="0.01"
+                                        class="item-vref form-input w-full px-2 py-1.5 border rounded text-sm"
+                                        placeholder="Opcional">
+                                </div>
                             </div>
 
                             <!-- Participantes deste item -->
                             <div class="border-t pt-3 mt-2">
                                 <div class="flex justify-between items-center mb-2">
                                     <h6 class="text-xs font-semibold text-gray-500 uppercase">Participantes deste Item</h6>
-                                    <button type="button" class="btn-add-participante-item bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-2 rounded shadow-sm">
+                                    <button type="button"
+                                        class="btn-add-participante-item bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-2 rounded shadow-sm">
                                         + Participante
                                     </button>
                                 </div>
@@ -731,29 +777,41 @@ try {
                     <!-- Template: Participante (dentro de um item) -->
                     <template id="template-participante">
                         <div class="participante-row border rounded-md p-3 bg-gray-50 relative">
-                            <button type="button" class="remover-participante absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-lg">&times;</button>
+                            <button type="button"
+                                class="remover-participante absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-lg">&times;</button>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 pr-6">
                                 <div class="md:col-span-2">
                                     <label class="text-xs text-gray-600">Fornecedor</label>
-                                    <select class="part-fornecedor form-input w-full px-2 py-1.5 border rounded text-sm" required>
+                                    <select class="part-fornecedor form-input w-full px-2 py-1.5 border rounded text-sm"
+                                        required>
                                         <option value="">Selecione...</option>
                                         <?php foreach ($fornecedores_disponiveis as $fornecedor): ?>
-                                            <option value="<?php echo $fornecedor['id']; ?>"><?php echo htmlspecialchars($fornecedor['nome']); ?></option>
+                                            <option value="<?php echo $fornecedor['id']; ?>">
+                                                <?php echo htmlspecialchars($fornecedor['nome']); ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
                                 <div><label class="text-xs text-gray-600">Fabricante/Marca</label>
-                                    <input type="text" class="part-fabricante form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>
+                                    <input type="text"
+                                        class="part-fabricante form-input w-full px-2 py-1.5 border rounded text-sm"
+                                        placeholder="Opcional">
+                                </div>
                                 <div><label class="text-xs text-gray-600">Modelo</label>
-                                    <input type="text" class="part-modelo form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>
+                                    <input type="text" class="part-modelo form-input w-full px-2 py-1.5 border rounded text-sm"
+                                        placeholder="Opcional">
+                                </div>
                                 <div><label class="text-xs text-gray-600">Valor Unitário (R$)</label>
-                                    <input type="number" step="0.01" class="part-valor form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                                    <input type="number" step="0.01"
+                                        class="part-valor form-input w-full px-2 py-1.5 border rounded text-sm" required>
+                                </div>
                                 <div><label class="text-xs text-gray-600">Status</label>
                                     <select class="part-status form-input w-full px-2 py-1.5 border rounded text-sm">
                                         <?php foreach ($status_item_list as $s): ?>
-                                            <option value="<?php echo htmlspecialchars($s); ?>"><?php echo htmlspecialchars($s); ?></option>
+                                            <option value="<?php echo htmlspecialchars($s); ?>"><?php echo htmlspecialchars($s); ?>
+                                            </option>
                                         <?php endforeach; ?>
-                                    </select></div>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     </template>
@@ -842,22 +900,36 @@ try {
                         <h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase">Dados do Item (Referência)</h5>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
                             <div><label class="text-xs text-gray-600">Nº do Lote (Opcional)</label>
-                                <input type="text" name="edit_bulk_numero_lote" id="edit_bulk_numero_lote" class="form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Ex: Lote 01"></div>
+                                <input type="text" name="edit_bulk_numero_lote" id="edit_bulk_numero_lote"
+                                    class="form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Ex: Lote 01">
+                            </div>
                             <div><label class="text-xs text-gray-600">Nº do Item</label>
-                                <input type="text" name="edit_bulk_numero_item" id="edit_bulk_numero_item" class="form-input w-full px-2 py-1.5 border rounded text-sm"></div>
+                                <input type="text" name="edit_bulk_numero_item" id="edit_bulk_numero_item"
+                                    class="form-input w-full px-2 py-1.5 border rounded text-sm">
+                            </div>
                             <div class="md:col-span-2"><label class="text-xs text-gray-600">Descrição</label>
-                                <input type="text" name="edit_bulk_descricao" id="edit_bulk_descricao" class="form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                                <input type="text" name="edit_bulk_descricao" id="edit_bulk_descricao"
+                                    class="form-input w-full px-2 py-1.5 border rounded text-sm" required>
+                            </div>
                             <div><label class="text-xs text-gray-600">Quantidade</label>
-                                <input type="number" name="edit_bulk_quantidade" id="edit_bulk_quantidade" class="form-input w-full px-2 py-1.5 border rounded text-sm" required></div>
+                                <input type="number" name="edit_bulk_quantidade" id="edit_bulk_quantidade"
+                                    class="form-input w-full px-2 py-1.5 border rounded text-sm" required>
+                            </div>
                             <div><label class="text-xs text-gray-600">Valor Unit. Referência (R$)</label>
-                                <input type="number" step="0.01" name="edit_bulk_valor_unitario_ref" id="edit_bulk_valor_unitario_ref" class="form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional"></div>
+                                <input type="number" step="0.01" name="edit_bulk_valor_unitario_ref"
+                                    id="edit_bulk_valor_unitario_ref"
+                                    class="form-input w-full px-2 py-1.5 border rounded text-sm" placeholder="Opcional">
+                            </div>
                             <div><label class="text-xs text-gray-600">Status do Item</label>
-                                <select name="edit_bulk_status_item_ref" id="edit_bulk_status_item_ref" class="form-input w-full px-2 py-1.5 border rounded text-sm">
+                                <select name="edit_bulk_status_item_ref" id="edit_bulk_status_item_ref"
+                                    class="form-input w-full px-2 py-1.5 border rounded text-sm">
                                     <option value="">--</option>
                                     <?php foreach ($status_item_ref_list as $sr): ?>
-                                        <option value="<?php echo htmlspecialchars($sr); ?>"><?php echo htmlspecialchars($sr); ?></option>
+                                        <option value="<?php echo htmlspecialchars($sr); ?>">
+                                            <?php echo htmlspecialchars($sr); ?></option>
                                     <?php endforeach; ?>
-                                </select></div>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
@@ -865,7 +937,8 @@ try {
                     <div class="border rounded-lg bg-white p-4 mb-4">
                         <div class="flex justify-between items-center mb-3">
                             <h5 class="text-sm font-semibold text-gray-600 uppercase">Participantes</h5>
-                            <button type="button" id="btn-add-participante-bulk" class="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm">
+                            <button type="button" id="btn-add-participante-bulk"
+                                class="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-3 rounded shadow-sm">
                                 + Adicionar Participante
                             </button>
                         </div>
@@ -873,7 +946,8 @@ try {
                     </div>
 
                     <div class="flex justify-end mt-4">
-                        <button type="submit" name="submit_edit_item_bulk" class="btn btn-success">Salvar Alterações</button>
+                        <button type="submit" name="submit_edit_item_bulk" class="btn btn-success">Salvar
+                            Alterações</button>
                     </div>
                 </form>
             </div>
@@ -914,13 +988,14 @@ try {
                                 required></div>
                         <div><label>Valor Unitário (R$)</label><input type="number" step="0.01" name="edit_valor_unitario"
                                 class="form-input" required></div>
-                        <div><label>V. Unit. Referência (R$)</label><input type="number" step="0.01" name="edit_valor_unitario_ref"
-                                class="form-input" placeholder="Opcional"></div>
+                        <div><label>V. Unit. Referência (R$)</label><input type="number" step="0.01"
+                                name="edit_valor_unitario_ref" class="form-input" placeholder="Opcional"></div>
                         <div><label>Status do Item (Ref.)</label>
                             <select name="edit_status_item_ref" class="form-input">
                                 <option value="">--</option>
                                 <?php foreach ($status_item_ref_list as $sr): ?>
-                                    <option value="<?php echo htmlspecialchars($sr); ?>"><?php echo htmlspecialchars($sr); ?></option>
+                                    <option value="<?php echo htmlspecialchars($sr); ?>"><?php echo htmlspecialchars($sr); ?>
+                                    </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>

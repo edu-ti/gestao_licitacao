@@ -386,7 +386,26 @@ try {
         </select></div><div class="flex justify-end mt-6"><button id="submit-pregao-btn" type="submit" name="submit_pregao" class="btn btn-primary">Cadastrar</button></div></form></div></div>
     
     <!-- Modal Fornecedor (AJAX) -->
-    <div id="modal-fornecedor" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden"><div class="bg-[#f7f6f6] p-8 rounded-lg shadow-xl w-full max-w-lg relative"><button class="close-modal-btn absolute top-4 right-4 text-gray-500 text-3xl">&times;</button><h2 class="text-2xl font-bold mb-6">Cadastrar Novo Fornecedor</h2><form id="form-fornecedor"><div id="fornecedor-form-message" class="mb-4 "></div><div class="mb-4"><label>Nome</label><input type="text" name="nome_fornecedor" class="w-full px-3 py-2 border rounded-lg" required></div><div class="mb-4"><label>CNPJ</label><input type="text" id="cnpj_fornecedor_input" name="cnpj_fornecedor" class="w-full px-3 py-2 border rounded-lg" placeholder="00.000.000/0000-00"></div><div class="mb-4"><label>Estado</label><select name="estado_fornecedor" class="w-full px-3 py-2 border rounded-lg"><option value="">Selecione</option>
+    <div id="modal-fornecedor" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden overflow-y-auto"><div class="bg-[#f7f6f6] p-8 rounded-lg shadow-xl w-full max-w-2xl my-8 relative"><button class="close-modal-btn absolute top-4 right-4 text-gray-500 text-3xl">&times;</button><h2 class="text-2xl font-bold mb-6">Cadastrar Novo Fornecedor</h2><form id="form-fornecedor"><div id="fornecedor-form-message" class="mb-4"></div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div><label>CNPJ</label><input type="text" id="cnpj_fornecedor_input" name="cnpj_fornecedor" class="w-full px-3 py-2 border rounded-lg" placeholder="00.000.000/0000-00"></div>
+        <div id="cnpj-status" class="flex items-end pb-2"><span id="cnpj-status-text" class="text-xs text-gray-500"></span></div>
+        <div><label>Razão Social (Nome)</label><input type="text" name="nome_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100" required></div>
+        <div><label>Nome Fantasia</label><input type="text" id="nome_fantasia_fornecedor" name="nome_fantasia_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
+        <div>
+            <label>Porte da Empresa</label>
+            <select id="porte_fornecedor" name="porte_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100">
+                <option value="">Selecione</option>
+                <option value="ME">ME - Microempresa</option>
+                <option value="EPP">EPP - Empresa de Pequeno Porte</option>
+                <option value="DEMAIS">Demais</option>
+                <option value="GRANDE">Grande Empresa</option>
+            </select>
+        </div>
+        <div class="md:col-span-2"><label>Endereço</label><input type="text" id="endereco_fornecedor" name="endereco_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100" placeholder="Logradouro, número"></div>
+        <div><label>Bairro</label><input type="text" id="bairro_fornecedor" name="bairro_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
+        <div><label>Cidade</label><input type="text" id="cidade_fornecedor" name="cidade_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
+        <div><label>Estado</label><select id="estado_fornecedor_select" name="estado_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100"><option value="">Selecione</option>
     <option value="AC">Acre</option>
                 <option value="AL">Alagoas</option><option value="AP">Amapá</option>
                 <option value="AM">Amazonas</option><option value="BA">Bahia</option>
@@ -402,14 +421,9 @@ try {
                 <option value="SC">Santa Catarina</option><option value="SP">São Paulo</option>
                 <option value="SE">Sergipe</option><option value="TO">Tocantins</option>
     </select></div>
-    <div class="mb-6">
-        <label>Empresa ME/EPP?</label>
-        <select name="me_epp_fornecedor" class="w-full px-3 py-2 border rounded-lg">
-            <option value="Nao">Não</option>
-            <option value="Sim">Sim</option>
-        </select>
+        <div><label>CEP</label><input type="text" id="cep_fornecedor" name="cep_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
     </div>
-    <div class="flex justify-end"><button type="submit" class="btn btn-primary">Cadastrar</button></div></form></div></div>
+    <div class="flex justify-end mt-6"><button type="submit" class="btn btn-primary">Cadastrar</button></div></form></div></div>
 
     <!-- Modal de Confirmação Genérico -->
     <div id="modal-confirm" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden"><div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md"><h3 class="text-xl font-bold mb-4">Confirmar Ação</h3><p id="modal-confirm-message" class="text-gray-600 mb-6"></p><div class="flex justify-end gap-4"><button id="modal-confirm-cancel" class="btn btn-secondary">Cancelar</button><button id="modal-confirm-ok" class="btn btn-danger">Confirmar</button></div></div></div>
