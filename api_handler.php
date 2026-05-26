@@ -46,7 +46,7 @@ function handleAddFornecedor() {
     $cidade = $_POST['cidade_fornecedor'] ?? '';
     $cep = $_POST['cep_fornecedor'] ?? '';
 
-    $me_epp = in_array($porte, ['ME', 'EPP']) ? 'Sim' : 'Nao';
+    $me_epp = in_array($porte, ['ME', 'MEI', 'EPP']) ? 'Sim' : 'Nao';
 
     if (empty($nome)) {
         jsonResponse(['error' => 'O nome do fornecedor é obrigatório.'], 400);
@@ -55,6 +55,16 @@ function handleAddFornecedor() {
     try {
         $db = new Database();
         $pdo = $db->connect();
+
+        $cnpjLimpo = preg_replace('/\D/', '', $cnpj);
+        if (!empty($cnpjLimpo)) {
+            $stmtCheck = $pdo->prepare("SELECT id, nome FROM fornecedores WHERE REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', '') = ?");
+            $stmtCheck->execute([$cnpjLimpo]);
+            $existente = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+            if ($existente) {
+                jsonResponse(['error' => 'Este CNPJ já está cadastrado: ' . $existente['nome']], 409);
+            }
+        }
 
         $stmt = $pdo->prepare("INSERT INTO fornecedores (nome, nome_fantasia, cnpj, estado, me_epp, porte, endereco, bairro, cidade, cep) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$nome, $nome_fantasia, $cnpj, $estado, $me_epp, $porte, $endereco, $bairro, $cidade, $cep]);
@@ -78,6 +88,36 @@ function handleAddFornecedor() {
         error_log("API Error (add_fornecedor): " . $e->getMessage());
         jsonResponse(['error' => 'Erro interno do servidor ao adicionar fornecedor.'], 500);
     }
+}
+
+function normalizarPorte($porte) {
+    $porte = trim(strtoupper($porte));
+
+    $map = [
+        'MEI' => 'MEI',
+        'MICROEMPREENDEDOR INDIVIDUAL' => 'MEI',
+        'ME' => 'ME',
+        'MICRO EMPRESA' => 'ME',
+        'MICRO-EMPRESA' => 'ME',
+        'MICROEMPRESA' => 'ME',
+        'EPP' => 'EPP',
+        'EMPRESA DE PEQUENO PORTE' => 'EPP',
+        'PEQUENA EMPRESA' => 'EPP',
+        'DEMAIS' => 'DEMAIS',
+        'GRANDE' => 'GRANDE',
+        'GRANDE EMPRESA' => 'GRANDE',
+    ];
+
+    if (isset($map[$porte])) {
+        return $map[$porte];
+    }
+
+    if (stripos($porte, 'MEI') !== false) return 'MEI';
+    if (stripos($porte, 'MICRO') !== false) return 'ME';
+    if (stripos($porte, 'PEQUENO') !== false || stripos($porte, 'EPP') !== false) return 'EPP';
+    if (stripos($porte, 'GRANDE') !== false) return 'GRANDE';
+
+    return '';
 }
 
 function handleBuscarCnpj() {
@@ -119,7 +159,39 @@ function handleBuscarCnpj() {
         jsonResponse(['error' => 'CNPJ não encontrado na base da Receita Federal.'], 404);
     }
 
-    $porte = $data['porte'] ?? '';
+    $porte_raw = $data['porte'] ?? $data['descricao_porte'] ?? '';
+    $porte = normalizarPorte($porte_raw);
+
+    if ($porte === '') {
+        $descricao = $data['descricao_porte'] ?? '';
+        if (stripos($descricao, 'micro') !== false) {
+            $porte = 'ME';
+        } elseif (stripos($descricao, 'pequeno') !== false) {
+            $porte = 'EPP';
+        } elseif (stripos($descricao, 'grande') !== false) {
+            $porte = 'GRANDE';
+        } elseif (stripos($descricao, 'mei') !== false) {
+            $porte = 'MEI';
+        } else {
+            $porte = 'DEMAIS';
+        }
+    }
+
+    $ja_cadastrado = false;
+    $cadastrado_nome = '';
+    try {
+        $db = new Database();
+        $pdo = $db->connect();
+        $stmt = $pdo->prepare("SELECT nome FROM fornecedores WHERE REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', '') = ?");
+        $stmt->execute([$cnpj]);
+        $existente = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($existente) {
+            $ja_cadastrado = true;
+            $cadastrado_nome = $existente['nome'];
+        }
+    } catch (Exception $ex) {
+        error_log("buscar_cnpj verificar existente: " . $ex->getMessage());
+    }
 
     $result = [
         'razao_social' => $data['razao_social'] ?? '',
@@ -133,6 +205,8 @@ function handleBuscarCnpj() {
         'municipio' => $data['municipio'] ?? '',
         'uf' => $data['uf'] ?? '',
         'cep' => $data['cep'] ?? '',
+        'ja_cadastrado' => $ja_cadastrado,
+        'cadastrado_nome' => $cadastrado_nome,
     ];
 
     jsonResponse(['success' => true, 'data' => $result]);

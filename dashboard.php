@@ -396,8 +396,9 @@ try {
             <label>Porte da Empresa</label>
             <select id="porte_fornecedor" name="porte_fornecedor" class="w-full px-3 py-2 border rounded-lg bg-gray-100">
                 <option value="">Selecione</option>
+                <option value="MEI">MEI</option>
                 <option value="ME">ME - Microempresa</option>
-                <option value="EPP">EPP - Empresa de Pequeno Porte</option>
+                <option value="EPP">EPP</option>
                 <option value="DEMAIS">Demais</option>
                 <option value="GRANDE">Grande Empresa</option>
             </select>

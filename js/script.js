@@ -208,8 +208,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (digits.length > 2 && cnpjStatus) {
                 cnpjStatus.textContent = 'Digite 14 dígitos para buscar...';
                 cnpjStatus.className = 'text-xs text-gray-400';
-            } else if (cnpjStatus) {
-                cnpjStatus.textContent = '';
+            } else {
+                if (cnpjStatus) cnpjStatus.textContent = '';
+                const msgDiv = document.getElementById('fornecedor-form-message');
+                if (msgDiv) msgDiv.innerHTML = '';
             }
         });
     }
@@ -219,12 +221,26 @@ document.addEventListener('DOMContentLoaded', () => {
         cnpjStatus.textContent = 'Buscando dados do CNPJ...';
         cnpjStatus.className = 'text-xs text-blue-600';
 
+        const messageDiv = document.getElementById('fornecedor-form-message');
+
         try {
             const response = await fetch('api_handler.php?action=buscar_cnpj&cnpj=' + cnpj);
             const result = await response.json();
 
             if (result.success && result.data) {
                 const d = result.data;
+
+                if (d.ja_cadastrado) {
+                    if (messageDiv) {
+                        messageDiv.innerHTML = '<div class="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded-md mb-2"><strong>Atenção!</strong> Este CNPJ já está cadastrado como <strong>' + d.cadastrado_nome + '</strong>.</div>';
+                    }
+                    cnpjStatus.textContent = 'CNPJ já cadastrado!';
+                    cnpjStatus.className = 'text-xs text-yellow-600 font-bold';
+                } else {
+                    if (messageDiv) messageDiv.innerHTML = '';
+                    cnpjStatus.textContent = 'Dados preenchidos automaticamente';
+                    cnpjStatus.className = 'text-xs text-green-600';
+                }
 
                 const nomeInput = document.querySelector('[name="nome_fornecedor"]');
                 const fantasiaInput = document.getElementById('nome_fantasia_fornecedor');
@@ -239,10 +255,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (fantasiaInput && d.nome_fantasia) fantasiaInput.value = d.nome_fantasia;
 
                 if (porteSelect && d.porte) {
-                    if (d.porte === 'ME' || d.porte === 'EPP' || d.porte === 'DEMAIS') {
-                        porteSelect.value = d.porte;
-                    } else {
-                        porteSelect.value = 'GRANDE';
+                    const porteNorm = d.porte.toUpperCase();
+                    if (['MEI', 'ME', 'EPP', 'DEMAIS', 'GRANDE'].includes(porteNorm)) {
+                        porteSelect.value = porteNorm;
                     }
                 }
 
@@ -255,9 +270,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (cidadeInput && d.municipio) cidadeInput.value = d.municipio;
                 if (estadoSelect && d.uf) estadoSelect.value = d.uf;
                 if (cepInput && d.cep) cepInput.value = d.cep;
-
-                cnpjStatus.textContent = 'Dados preenchidos automaticamente';
-                cnpjStatus.className = 'text-xs text-green-600';
             } else {
                 cnpjStatus.textContent = result.error || 'CNPJ não encontrado';
                 cnpjStatus.className = 'text-xs text-red-500';
