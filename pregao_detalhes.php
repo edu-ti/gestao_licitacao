@@ -8,7 +8,7 @@ require_once 'config.php';
 require_once 'notificacoes.php';
 
 $status_list = ["Em análise", "Acolhimento de propostas", "Homologado", "Revogado", "Fracassado", "Anulado", "Adjudicado", "Suspenso"];
-$status_item_list = ["Classificada", "Desclassificada", "Em Negociação", "Aceita", "Adjudicado", "Homologado"];
+$status_item_list = ["Classificada", "Desclassificada", "Inabilitada", "Em Negociação", "Aceita", "Adjudicado", "Homologado"];
 $status_item_ref_list = ["Acolhimento de Proposta", "Em Análise", "Homologado", "Revogado", "Fracassado", "Anulado", "Suspenso", "Adjudicado", "Deserto"];
 
 $mensagem = '';
@@ -610,8 +610,12 @@ try {
                                             </thead>
                                             <tbody>
                                                 <?php
+                                                $status_eliminatorios = ['Desclassificada', 'Inabilitada'];
                                                 $ranking_map = [];
-                                                $sorted = $participantes;
+                                                $validos = array_filter($participantes, function ($p) use ($status_eliminatorios) {
+                                                    return !in_array($p['status_item'] ?? '', $status_eliminatorios);
+                                                });
+                                                $sorted = array_values($validos);
                                                 usort($sorted, function ($a, $b) {
                                                     return $a['valor_unitario'] <=> $b['valor_unitario'];
                                                 });
@@ -621,11 +625,19 @@ try {
                                                     $pos++;
                                                 }
                                                 foreach ($participantes as $item):
-                                                    $rank = $ranking_map[$item['id']] ?? '-';
+                                                    $status_item = $item['status_item'] ?? 'Classificada';
+                                                    $eliminado = in_array($status_item, $status_eliminatorios);
+                                                    $rank = $eliminado ? '—' : ($ranking_map[$item['id']] ?? '-');
+                                                    $status_class = $eliminado ? 'text-red-600 font-semibold' : '';
                                                     ?>
-                                                    <tr>
+                                                    <tr class="<?php echo $eliminado ? 'bg-red-50' : ''; ?>">
                                                         <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm font-medium">
-                                                            <?php echo $rank; ?>º <?php echo htmlspecialchars($item['fornecedor_nome']); ?>
+                                                            <?php if ($eliminado): ?>
+                                                                <span class="text-red-500">—</span>
+                                                            <?php else: ?>
+                                                                <?php echo $rank; ?>º
+                                                            <?php endif; ?>
+                                                            <?php echo htmlspecialchars($item['fornecedor_nome']); ?>
                                                         </td>
                                                         <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm">
                                                             <?php echo htmlspecialchars($item['fabricante'] ?? 'N/D'); ?>
@@ -639,8 +651,8 @@ try {
                                                         <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm font-semibold">R$
                                                             <?php echo number_format($item['quantidade'] * $item['valor_unitario'], 2, ',', '.'); ?>
                                                         </td>
-                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm">
-                                                            <?php echo htmlspecialchars($item['status_item'] ?? 'Classificada'); ?>
+                                                        <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm <?php echo $status_class; ?>">
+                                                            <?php echo htmlspecialchars($status_item); ?>
                                                         </td>
                                                         <td class="px-4 py-3 border-b border-gray-200 bg-white text-sm no-print">
                                                             <?php if (isAdmin()): ?>
