@@ -54,7 +54,16 @@ try {
             logActivity($pdo, $current_user_id, 'pregoes', 'CADASTRO', $novo_pregao_id, "Pregão " . htmlspecialchars($_POST['numero_edital']) . " foi cadastrado.");
             
             error_log("Dashboard: Tentando chamar criarNotificacao para o novo pregão ID: " . $novo_pregao_id);
-            criarNotificacao($pdo, $novo_pregao_id, "Novo Pregão: " . $_POST['numero_edital'], "Novo pregão cadastrado: {$_POST['numero_edital']}.");
+            $dados_pregao = [
+                'numero_edital' => $_POST['numero_edital'],
+                'numero_processo' => $_POST['numero_processo'] ?? '',
+                'orgao_comprador' => $_POST['orgao_comprador'] ?? '',
+                'data_sessao' => $_POST['data_sessao'] ?? '',
+                'hora_sessao' => $_POST['hora_sessao'] ?? '',
+                'modalidade' => $_POST['modalidade'] ?? '',
+                'objeto' => $_POST['objeto'] ?? ''
+            ];
+            criarNotificacao($pdo, $novo_pregao_id, "Novo Pregão: " . $_POST['numero_edital'], "Novo pregão cadastrado com sucesso.", $dados_pregao);
             error_log("Dashboard: Chamada para criarNotificacao concluída.");
         }
         
@@ -67,7 +76,16 @@ try {
             $_SESSION['mensagem_pregao'] = "Pregão atualizado com sucesso!";
             
             error_log("Dashboard: Tentando chamar criarNotificacao para o pregão editado ID: " . $_POST['edit_pregao_id']);
-            criarNotificacao($pdo, $_POST['edit_pregao_id'], "Pregão Atualizado: " . $_POST['numero_edital'], "O pregão {$_POST['numero_edital']} foi atualizado.");
+            $dados_pregao = [
+                'numero_edital' => $_POST['numero_edital'],
+                'numero_processo' => $_POST['numero_processo'] ?? '',
+                'orgao_comprador' => $_POST['orgao_comprador'] ?? '',
+                'data_sessao' => $_POST['data_sessao'] ?? '',
+                'hora_sessao' => $_POST['hora_sessao'] ?? '',
+                'modalidade' => $_POST['modalidade'] ?? '',
+                'objeto' => $_POST['objeto'] ?? ''
+            ];
+            criarNotificacao($pdo, $_POST['edit_pregao_id'], "Pregão Atualizado: " . $_POST['numero_edital'], "O pregão foi atualizado.", $dados_pregao);
             error_log("Dashboard: Chamada para criarNotificacao concluída.");
         }
 
@@ -227,19 +245,19 @@ try {
             <div class="bg-white p-4 sm:p-8 rounded-lg shadow-lg">
                 <div class="tab-container mb-6">
                         <button class="tab-btn active" data-tab="pregoes">Gestão de Pregões</button>
-                        <a href="boletim_licitacoes.php" class="tab-btn">Boletim de Licitações</a>
-                        <a href="encontrar_licitacoes.php" class="tab-btn">Encontrar Licitações</a>
-                        <a href="gerenciar_licitacoes.php" class="tab-btn">Gerenciar Licitações</a>
-                        <a href="monitorar_chat.php" class="tab-btn">Monitorar Chat</a>
-                        <button class="tab-btn" data-tab="fornecedores">Gestão de Fornecedores</button>
-                        <?php if (isAdmin()): ?>
-                        <button class="tab-btn" data-tab="acessos">Gerar Token</button>
-                        <?php endif; ?>
                         <button class="tab-btn" data-tab="calendario">Calendário</button>
                         <a href="relatorios.php" class="tab-btn">Relatórios</a>
                         <a href="consignado.php" class="tab-btn">Consignado</a>
                         <a href="licencas.php" class="tab-btn">Licenças & Certidões</a>
-                        <a href="radar.php" class="tab-btn">Monitorar</a>
+                        <button class="tab-btn" data-tab="fornecedores">Gestão de Fornecedores</button>
+                        <?php if (isAdmin()): ?>
+                        <button class="tab-btn" data-tab="acessos">Gerar Token</button>
+                        <?php endif; ?>
+                        <!--<a href="boletim_licitacoes.php" class="tab-btn">Boletim de Licitações</a>-->
+                        <!--<a href="encontrar_licitacoes.php" class="tab-btn">Encontrar Licitações</a>-->
+                        <!--<a href="gerenciar_licitacoes.php" class="tab-btn">Gerenciar Licitações</a>-->
+                        <!--<a href="monitorar_chat.php" class="tab-btn">Monitorar Chat</a>-->
+                        <!--<a href="radar.php" class="tab-btn">Monitorar</a>-->
                     
 						
 					
@@ -519,6 +537,10 @@ try {
                 setInterval(updateTimers, 1000);
                 updateTimers(); 
             }
+            // KEEPALIVE: ping a cada 5 minutos para manter a sessao ativa
+            setInterval(function() {
+                fetch('ping.php').catch(function(){});
+            }, 300000);
         });
     </script>
 </body>

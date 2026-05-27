@@ -85,3 +85,8 @@ if (isset($_SESSION['user_id'])) {
         
     </div>
 </header>
+<script>
+    setInterval(function() {
+        fetch('../gestao_licitacao/ping.php').catch(function(){});
+    }, 300000);
+</script>

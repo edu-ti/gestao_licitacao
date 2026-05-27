@@ -74,8 +74,9 @@ define('BASE_URL', 'http://frpe.app.br');
 // Caminho para o diretório de uploads
 define('UPLOAD_DIR', __DIR__ . '/uploads/');
 
-// Timeout da sessão em segundos (ex: 3600 = 1 hora)
-define('SESSION_TIMEOUT', 3600);
+// Timeout da sessão em segundos (14400 = 4 horas)
+define('SESSION_TIMEOUT', 14400);
+ini_set('session.gc_maxlifetime', 14400);
 
 // Níveis de permissão
 define('PERM_ADMIN', 'Admin');
