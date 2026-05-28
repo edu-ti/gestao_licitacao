@@ -45,9 +45,9 @@ try {
         // Adicionar Pregão
         if (isset($_POST['submit_pregao'])) {
             $status_pregao = !empty($_POST['status']) ? $_POST['status'] : 'Em análise';
-            $sql = "INSERT INTO pregoes (numero_edital, numero_processo, modalidade, orgao_comprador, local_disputa, uasg, objeto, data_publicacao, data_abertura, data_sessao, hora_sessao, status, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO pregoes (numero_edital, numero_processo, modalidade, orgao_comprador, orgao_cnpj, orgao_nome_fantasia, orgao_endereco, orgao_bairro, orgao_cidade, orgao_estado, orgao_cep, local_disputa, uasg, objeto, data_publicacao, data_abertura, data_sessao, hora_sessao, status, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([$_POST['numero_edital'], $_POST['numero_processo'], $_POST['modalidade'], $_POST['orgao_comprador'], $_POST['local_disputa'], $_POST['uasg'], $_POST['objeto'], null, !empty($_POST['data_sessao']) ? $_POST['data_sessao'] : null, !empty($_POST['hora_sessao']) ? $_POST['hora_sessao'] : null, $status_pregao, $current_user_id]);
+            $stmt->execute([$_POST['numero_edital'], $_POST['numero_processo'], $_POST['modalidade'], $_POST['orgao_comprador'], $_POST['orgao_cnpj'] ?? null, $_POST['orgao_nome_fantasia'] ?? null, $_POST['orgao_endereco'] ?? null, $_POST['orgao_bairro'] ?? null, $_POST['orgao_cidade'] ?? null, $_POST['orgao_estado'] ?? null, $_POST['orgao_cep'] ?? null, $_POST['local_disputa'], $_POST['uasg'], $_POST['objeto'], null, !empty($_POST['data_sessao']) ? $_POST['data_sessao'] : null, !empty($_POST['hora_sessao']) ? $_POST['hora_sessao'] : null, $status_pregao, $current_user_id]);
             $_SESSION['mensagem_pregao'] = "Pregão cadastrado com sucesso!";
             $novo_pregao_id = $pdo->lastInsertId();
             
@@ -70,9 +70,9 @@ try {
         // Editar Pregão
         if (isset($_POST['submit_edit_pregao'])) {
             $status_pregao = !empty($_POST['status']) ? $_POST['status'] : 'Em análise';
-            $sql = "UPDATE pregoes SET numero_edital = ?, numero_processo = ?, modalidade = ?, orgao_comprador = ?, local_disputa = ?, uasg = ?, objeto = ?, data_abertura = ?, data_sessao = ?, hora_sessao = ?, status = ? WHERE id = ?";
+            $sql = "UPDATE pregoes SET numero_edital = ?, numero_processo = ?, modalidade = ?, orgao_comprador = ?, orgao_cnpj = ?, orgao_nome_fantasia = ?, orgao_endereco = ?, orgao_bairro = ?, orgao_cidade = ?, orgao_estado = ?, orgao_cep = ?, local_disputa = ?, uasg = ?, objeto = ?, data_abertura = ?, data_sessao = ?, hora_sessao = ?, status = ? WHERE id = ?";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([$_POST['numero_edital'], $_POST['numero_processo'], $_POST['modalidade'], $_POST['orgao_comprador'], $_POST['local_disputa'], $_POST['uasg'], $_POST['objeto'], null, !empty($_POST['data_sessao']) ? $_POST['data_sessao'] : null, !empty($_POST['hora_sessao']) ? $_POST['hora_sessao'] : null, $status_pregao, $_POST['edit_pregao_id']]);
+            $stmt->execute([$_POST['numero_edital'], $_POST['numero_processo'], $_POST['modalidade'], $_POST['orgao_comprador'], $_POST['orgao_cnpj'] ?? null, $_POST['orgao_nome_fantasia'] ?? null, $_POST['orgao_endereco'] ?? null, $_POST['orgao_bairro'] ?? null, $_POST['orgao_cidade'] ?? null, $_POST['orgao_estado'] ?? null, $_POST['orgao_cep'] ?? null, $_POST['local_disputa'], $_POST['uasg'], $_POST['objeto'], null, !empty($_POST['data_sessao']) ? $_POST['data_sessao'] : null, !empty($_POST['hora_sessao']) ? $_POST['hora_sessao'] : null, $status_pregao, $_POST['edit_pregao_id']]);
             $_SESSION['mensagem_pregao'] = "Pregão atualizado com sucesso!";
             
             error_log("Dashboard: Tentando chamar criarNotificacao para o pregão editado ID: " . $_POST['edit_pregao_id']);
@@ -287,16 +287,23 @@ try {
                                             <div class="flex items-center justify-center gap-2">
                                                 <a href="pregao_detalhes.php?id=<?php echo $row['id']; ?>" class="btn btn-detalhe btn-sm">Detalhes</a>
                                                 <?php if (isAdmin()): ?>
-                                                    <button class="btn btn-secondary btn-sm edit-pregao-btn " data-id="<?php echo $row['id']; ?>" 
-                                                    data-numero_edital="<?php echo htmlspecialchars($row['numero_edital']); ?>" 
-                                                    data-numero_processo="<?php echo htmlspecialchars($row['numero_processo']); ?>" 
-                                                    data-modalidade="<?php echo htmlspecialchars($row['modalidade']); ?>" 
-                                                    data-orgao_comprador="<?php echo htmlspecialchars($row['orgao_comprador']); ?>" 
-                                                    data-local_disputa="<?php echo htmlspecialchars($row['local_disputa']); ?>" 
-                                                    data-uasg="<?php echo htmlspecialchars($row['uasg']); ?>" 
-                                                    data-objeto="<?php echo htmlspecialchars($row['objeto']); ?>" 
-                                                    data-data_sessao="<?php echo htmlspecialchars($row['data_sessao'] ?? ''); ?>" 
-                                                    data-hora_sessao="<?php echo htmlspecialchars($row['hora_sessao'] ?? ''); ?>" 
+                                                    <button class="btn btn-secondary btn-sm edit-pregao-btn " data-id="<?php echo $row['id']; ?>"
+                                                    data-numero_edital="<?php echo htmlspecialchars($row['numero_edital']); ?>"
+                                                    data-numero_processo="<?php echo htmlspecialchars($row['numero_processo']); ?>"
+                                                    data-modalidade="<?php echo htmlspecialchars($row['modalidade']); ?>"
+                                                    data-orgao_comprador="<?php echo htmlspecialchars($row['orgao_comprador']); ?>"
+                                                    data-orgao_cnpj="<?php echo htmlspecialchars($row['orgao_cnpj'] ?? ''); ?>"
+                                                    data-orgao_nome_fantasia="<?php echo htmlspecialchars($row['orgao_nome_fantasia'] ?? ''); ?>"
+                                                    data-orgao_endereco="<?php echo htmlspecialchars($row['orgao_endereco'] ?? ''); ?>"
+                                                    data-orgao_bairro="<?php echo htmlspecialchars($row['orgao_bairro'] ?? ''); ?>"
+                                                    data-orgao_cidade="<?php echo htmlspecialchars($row['orgao_cidade'] ?? ''); ?>"
+                                                    data-orgao_estado="<?php echo htmlspecialchars($row['orgao_estado'] ?? ''); ?>"
+                                                    data-orgao_cep="<?php echo htmlspecialchars($row['orgao_cep'] ?? ''); ?>"
+                                                    data-local_disputa="<?php echo htmlspecialchars($row['local_disputa']); ?>"
+                                                    data-uasg="<?php echo htmlspecialchars($row['uasg']); ?>"
+                                                    data-objeto="<?php echo htmlspecialchars($row['objeto']); ?>"
+                                                    data-data_sessao="<?php echo htmlspecialchars($row['data_sessao'] ?? ''); ?>"
+                                                    data-hora_sessao="<?php echo htmlspecialchars($row['hora_sessao'] ?? ''); ?>"
                                                     data-status="<?php echo htmlspecialchars($row['status']); ?>">Editar</button>
                                                     <form id="delete-pregao-form-<?php echo $row['id']; ?>" method="POST" class="inline-block"><input type="hidden" name="excluir_id_pregao" value="<?php echo $row['id']; ?>"></form>
                                                     <button type="button" class="btn btn-danger btn-sm js-confirm-delete" data-form-id="delete-pregao-form-<?php echo $row['id']; ?>" data-message="Tem certeza que deseja excluir o pregão <?php echo htmlspecialchars($row['numero_edital']); ?>?">Excluir</button>
@@ -387,8 +394,18 @@ try {
     </div>
     
     <!-- Modais -->
-    <div id="modal-pregao" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden overflow-y-auto"><div class="bg-[#f7f6f6] p-8 rounded-lg shadow-xl w-full max-w-2xl my-8"><div class="flex justify-between items-center"><h2 id="modal-pregao-title" class="text-2xl font-bold mb-6">Cadastrar Novo Pregão</h2><button class="close-modal-btn text-gray-500 text-3xl mb-6">&times;</button></div><form id="form-pregao" method="post"><input type="hidden" id="edit_pregao_id" name="edit_pregao_id"><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label>Número do Edital</label><input type="text" name="numero_edital" class="w-full px-3 py-2 border rounded-lg" required></div><div><label>Número do Processo</label><input type="text" name="numero_processo" class="w-full px-3 py-2 border rounded-lg"></div><div><label>Modalidade</label><select name="modalidade" class="w-full px-3 py-2 border rounded-lg" required>
-        
+    <div id="modal-pregao" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-start justify-center hidden overflow-y-auto pt-6 pb-6 px-4">
+        <div class="bg-[#f7f6f6] p-6 rounded-lg shadow-xl w-full max-w-3xl my-auto">
+            <div class="flex justify-between items-center">
+                <h2 id="modal-pregao-title" class="text-2xl font-bold mb-6">Cadastrar Novo Pregão</h2>
+                <button class="close-modal-btn text-gray-500 text-3xl mb-6">&times;</button>
+            </div>
+            <form id="form-pregao" method="post">
+                <input type="hidden" id="edit_pregao_id" name="edit_pregao_id">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label>Número do Edital</label><input type="text" name="numero_edital" class="w-full px-3 py-2 border rounded-lg" required></div>
+                    <div><label>Número do Processo</label><input type="text" name="numero_processo" class="w-full px-3 py-2 border rounded-lg"></div>
+                    <div><label>Modalidade</label><select name="modalidade" class="w-full px-3 py-2 border rounded-lg" required>
                         <option value="Pregão Eletrônico">Pregão Eletrônico</option>
                         <option value="Compra Direta">Compra Direta</option>
                         <option value="Dispensa de Licitação">Dispensa de Licitação</option>
@@ -396,13 +413,58 @@ try {
                         <option value="Concorrência">Concorrência</option>
                         <option value="Tomada de Preços">Tomada de Preços</option>
                         <option value="Convite">Convite</option>
-                        <option value="Outra">Outra</option></select></div>
-        
-        <div><label>Órgão Comprador</label><input type="text" name="orgao_comprador" class="w-full px-3 py-2 border rounded-lg" required></div><div><label>Local da Disputa</label><input type="text" name="local_disputa" class="w-full px-3 py-2 border rounded-lg"></div><div><label>UASG</label><input type="text" name="uasg" class="w-full px-3 py-2 border rounded-lg"></div></div><div class="mt-4"><label>Objeto</label><textarea name="objeto" rows="3" class="w-full px-3 py-2 border rounded-lg" required></textarea></div><div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4"><div><label>Data de Abertura/Disputa</label><input type="date" name="data_sessao" class="w-full px-3 py-2 border rounded-lg"></div><div><label>Hora da Disputa</label><input type="time" name="hora_sessao" class="w-full px-3 py-2 border rounded-lg"></div></div><div class="mt-4"><label>Status</label><select name="status" class="w-full px-3 py-2 border rounded-lg"required>
-            <?php foreach($status_list as $status_item): ?>
-                <option value="<?php echo htmlspecialchars($status_item); ?>"><?php echo htmlspecialchars($status_item); ?></option>
-            <?php endforeach; ?>
-        </select></div><div class="flex justify-end mt-6"><button id="submit-pregao-btn" type="submit" name="submit_pregao" class="btn btn-primary">Cadastrar</button></div></form></div></div>
+                        <option value="Outra">Outra</option>
+                    </select></div>
+                    <div><label>Local da Disputa</label><input type="text" name="local_disputa" class="w-full px-3 py-2 border rounded-lg"></div>
+                    <div><label>UASG</label><input type="text" name="uasg" class="w-full px-3 py-2 border rounded-lg"></div>
+                </div>
+
+                <!-- Bloco Órgão Comprador -->
+                <div class="mt-4 p-4 bg-white border rounded-lg">
+                    <h3 class="text-sm font-bold text-gray-700 uppercase mb-3">Órgão Comprador</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label>CNPJ</label>
+                            <input type="text" id="cnpj_orgao_input" name="orgao_cnpj" class="w-full px-3 py-2 border rounded-lg" placeholder="00.000.000/0000-00">
+                            <span id="cnpj-orgao-status-text" class="text-xs text-gray-500"></span>
+                        </div>
+                        <div><label>Razão Social</label><input type="text" name="orgao_comprador" id="orgao_comprador_input" class="w-full px-3 py-2 border rounded-lg bg-gray-100" required></div>
+                        <div><label>Nome Fantasia</label><input type="text" name="orgao_nome_fantasia" id="orgao_nome_fantasia_input" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
+                        <div class="md:col-span-2"><label>Endereço</label><input type="text" name="orgao_endereco" id="orgao_endereco_input" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
+                        <div><label>Bairro</label><input type="text" name="orgao_bairro" id="orgao_bairro_input" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
+                        <div><label>Cidade</label><input type="text" name="orgao_cidade" id="orgao_cidade_input" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
+                        <div><label>Estado</label>
+                            <select name="orgao_estado" id="orgao_estado_input" class="w-full px-3 py-2 border rounded-lg bg-gray-100">
+                                <option value="">Selecione</option>
+                                <option value="AC">Acre</option><option value="AL">Alagoas</option><option value="AP">Amapá</option>
+                                <option value="AM">Amazonas</option><option value="BA">Bahia</option><option value="CE">Ceará</option>
+                                <option value="DF">Distrito Federal</option><option value="ES">Espírito Santo</option><option value="GO">Goiás</option>
+                                <option value="MA">Maranhão</option><option value="MT">Mato Grosso</option><option value="MS">Mato Grosso do Sul</option>
+                                <option value="MG">Minas Gerais</option><option value="PA">Pará</option><option value="PB">Paraíba</option>
+                                <option value="PR">Paraná</option><option value="PE">Pernambuco</option><option value="PI">Piauí</option>
+                                <option value="RJ">Rio de Janeiro</option><option value="RN">Rio Grande do Norte</option><option value="RS">Rio Grande do Sul</option>
+                                <option value="RO">Rondônia</option><option value="RR">Roraima</option><option value="SC">Santa Catarina</option>
+                                <option value="SP">São Paulo</option><option value="SE">Sergipe</option><option value="TO">Tocantins</option>
+                            </select>
+                        </div>
+                        <div><label>CEP</label><input type="text" name="orgao_cep" id="orgao_cep_input" class="w-full px-3 py-2 border rounded-lg bg-gray-100"></div>
+                    </div>
+                </div>
+
+                <div class="mt-4"><label>Objeto</label><textarea name="objeto" rows="3" class="w-full px-3 py-2 border rounded-lg" required></textarea></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div><label>Data de Abertura/Disputa</label><input type="date" name="data_sessao" class="w-full px-3 py-2 border rounded-lg"></div>
+                    <div><label>Hora da Disputa</label><input type="time" name="hora_sessao" class="w-full px-3 py-2 border rounded-lg"></div>
+                </div>
+                <div class="mt-4"><label>Status</label><select name="status" class="w-full px-3 py-2 border rounded-lg" required>
+                    <?php foreach($status_list as $status_item): ?>
+                        <option value="<?php echo htmlspecialchars($status_item); ?>"><?php echo htmlspecialchars($status_item); ?></option>
+                    <?php endforeach; ?>
+                </select></div>
+                <div class="flex justify-end mt-6"><button id="submit-pregao-btn" type="submit" name="submit_pregao" class="btn btn-primary">Cadastrar</button></div>
+            </form>
+        </div>
+    </div>
     
     <!-- Modal Fornecedor (AJAX) -->
     <div id="modal-fornecedor" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden overflow-y-auto"><div class="bg-[#f7f6f6] p-8 rounded-lg shadow-xl w-full max-w-2xl my-8 relative"><button class="close-modal-btn absolute top-4 right-4 text-gray-500 text-3xl">&times;</button><h2 class="text-2xl font-bold mb-6">Cadastrar Novo Fornecedor</h2><form id="form-fornecedor"><div id="fornecedor-form-message" class="mb-4"></div>

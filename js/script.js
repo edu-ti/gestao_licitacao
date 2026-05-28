@@ -67,6 +67,13 @@ document.addEventListener('DOMContentLoaded', () => {
             form.querySelector('[name="numero_processo"]').value = button.dataset.numero_processo || '';
             form.querySelector('[name="modalidade"]').value = button.dataset.modalidade || '';
             form.querySelector('[name="orgao_comprador"]').value = button.dataset.orgao_comprador || '';
+            form.querySelector('[name="orgao_cnpj"]').value = button.dataset.orgao_cnpj || '';
+            form.querySelector('[name="orgao_nome_fantasia"]').value = button.dataset.orgao_nome_fantasia || '';
+            form.querySelector('[name="orgao_endereco"]').value = button.dataset.orgao_endereco || '';
+            form.querySelector('[name="orgao_bairro"]').value = button.dataset.orgao_bairro || '';
+            form.querySelector('[name="orgao_cidade"]').value = button.dataset.orgao_cidade || '';
+            form.querySelector('[name="orgao_estado"]').value = button.dataset.orgao_estado || '';
+            form.querySelector('[name="orgao_cep"]').value = button.dataset.orgao_cep || '';
             form.querySelector('[name="local_disputa"]').value = button.dataset.local_disputa || '';
             form.querySelector('[name="uasg"]').value = button.dataset.uasg || '';
             form.querySelector('[name="objeto"]').value = button.dataset.objeto || '';
@@ -325,6 +332,77 @@ document.addEventListener('DOMContentLoaded', () => {
                 messageDiv.innerHTML = `<div class="bg-red-100 text-red-700 p-3 rounded-md">Erro de conexão. Tente novamente.</div>`;
             }
         });
+    }
+
+    // BUSCA DE CNPJ DO ÓRGÃO COMPRADOR NO MODAL DE PREGÃO
+    const cnpjOrgaoInput = document.getElementById('cnpj_orgao_input');
+    const cnpjOrgaoStatus = document.getElementById('cnpj-orgao-status-text');
+    let cnpjOrgaoTimer = null;
+
+    if (cnpjOrgaoInput) {
+        cnpjOrgaoInput.addEventListener('input', (e) => {
+            let value = e.target.value.replace(/\D/g, '');
+            value = value.replace(/^(\d{2})(\d)/, '$1.$2');
+            value = value.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+            value = value.replace(/\.(\d{3})(\d)/, '.$1/$2');
+            value = value.replace(/(\d{4})(\d)/, '$1-$2');
+            e.target.value = value.slice(0, 18);
+
+            const digits = value.replace(/\D/g, '');
+            if (digits.length === 14) {
+                if (cnpjOrgaoTimer) clearTimeout(cnpjOrgaoTimer);
+                cnpjOrgaoTimer = setTimeout(() => buscarCNPJOrgao(digits), 500);
+            } else if (digits.length > 2 && cnpjOrgaoStatus) {
+                cnpjOrgaoStatus.textContent = 'Digite 14 dígitos para buscar...';
+                cnpjOrgaoStatus.className = 'text-xs text-gray-400';
+            } else {
+                if (cnpjOrgaoStatus) cnpjOrgaoStatus.textContent = '';
+            }
+        });
+    }
+
+    async function buscarCNPJOrgao(cnpj) {
+        if (!cnpjOrgaoStatus) return;
+        cnpjOrgaoStatus.textContent = 'Buscando dados do CNPJ...';
+        cnpjOrgaoStatus.className = 'text-xs text-blue-600';
+
+        try {
+            const response = await fetch('api_handler.php?action=buscar_cnpj&cnpj=' + cnpj);
+            const result = await response.json();
+
+            if (result.success && result.data) {
+                const d = result.data;
+                cnpjOrgaoStatus.textContent = 'Dados preenchidos automaticamente';
+                cnpjOrgaoStatus.className = 'text-xs text-green-600';
+
+                const razaoInput = document.getElementById('orgao_comprador_input');
+                const fantasiaInput = document.getElementById('orgao_nome_fantasia_input');
+                const enderecoInput = document.getElementById('orgao_endereco_input');
+                const bairroInput = document.getElementById('orgao_bairro_input');
+                const cidadeInput = document.getElementById('orgao_cidade_input');
+                const estadoSelect = document.getElementById('orgao_estado_input');
+                const cepInput = document.getElementById('orgao_cep_input');
+
+                if (razaoInput && d.razao_social) razaoInput.value = d.razao_social;
+                if (fantasiaInput && d.nome_fantasia) fantasiaInput.value = d.nome_fantasia;
+
+                let endereco = d.logradouro || '';
+                if (d.numero) endereco += ', ' + d.numero;
+                if (d.complemento) endereco += ' - ' + d.complemento;
+                if (enderecoInput && endereco) enderecoInput.value = endereco;
+
+                if (bairroInput && d.bairro) bairroInput.value = d.bairro;
+                if (cidadeInput && d.municipio) cidadeInput.value = d.municipio;
+                if (estadoSelect && d.uf) estadoSelect.value = d.uf;
+                if (cepInput && d.cep) cepInput.value = d.cep;
+            } else {
+                cnpjOrgaoStatus.textContent = result.error || 'CNPJ não encontrado';
+                cnpjOrgaoStatus.className = 'text-xs text-red-500';
+            }
+        } catch (error) {
+            cnpjOrgaoStatus.textContent = 'Erro ao consultar CNPJ. Preencha manualmente.';
+            cnpjOrgaoStatus.className = 'text-xs text-red-500';
+        }
     }
 
     // GERENCIAMENTO DE ITENS E PARTICIPANTES DINÂMICOS
