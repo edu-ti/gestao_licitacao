@@ -93,9 +93,6 @@ try {
     $db = new Database();
     $pdo = $db->connect();
 
-    // ===================================================================
-    // NOVA LÓGICA DE FILTROS (ARRAYS + PREGÃO)
-    // ===================================================================
     $filtro_status = isset($_GET['filtro_status']) && is_array($_GET['filtro_status']) ? $_GET['filtro_status'] : [];
     $filtro_fornecedor = isset($_GET['filtro_fornecedor']) && is_array($_GET['filtro_fornecedor']) ? $_GET['filtro_fornecedor'] : [];
     $filtro_orgao = $_GET['filtro_orgao'] ?? '';
@@ -103,17 +100,14 @@ try {
     $filtro_data_fim = $_GET['filtro_data_fim'] ?? '';
     $filtro_pregao = $_GET['filtro_pregao'] ?? '';
 
-    $sql_pregoes = "SELECT id, numero_edital, orgao_comprador, data_sessao, status FROM pregoes";
+    $sql_pregoes = "SELECT id, numero_edital, numero_processo, modalidade, orgao_comprador, orgao_cnpj, orgao_nome_fantasia, orgao_endereco, orgao_bairro, orgao_cidade, orgao_estado, orgao_cep, data_sessao, hora_sessao, status, objeto FROM pregoes";
     $where_clauses = [];
     $params = [];
 
-    // Filtro por pregão específico (prioritário)
     if (!empty($filtro_pregao)) {
         $where_clauses[] = "id = :pregao_id";
         $params[':pregao_id'] = $filtro_pregao;
     }
-
-    // Filtro por status (múltiplos)
     if (!empty($filtro_status)) {
         $placeholders = [];
         foreach ($filtro_status as $i => $s) {
@@ -123,14 +117,10 @@ try {
         }
         $where_clauses[] = "status IN (" . implode(',', $placeholders) . ")";
     }
-
-    // Filtro por órgão
     if (!empty($filtro_orgao)) {
         $where_clauses[] = "orgao_comprador = :orgao";
         $params[':orgao'] = $filtro_orgao;
     }
-
-    // Filtro por período
     if (!empty($filtro_data_inicio)) {
         $where_clauses[] = "data_sessao >= :data_inicio";
         $params[':data_inicio'] = $filtro_data_inicio;
@@ -139,8 +129,6 @@ try {
         $where_clauses[] = "data_sessao <= :data_fim";
         $params[':data_fim'] = $filtro_data_fim;
     }
-
-    // Filtro por fornecedor (múltiplos)
     if (!empty($filtro_fornecedor)) {
         $placeholders = [];
         foreach ($filtro_fornecedor as $i => $f) {
@@ -160,9 +148,6 @@ try {
     $stmt->execute($params);
     $pregoes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // ===================================================================
-    // GERAÇÃO DO PDF
-    // ===================================================================
     $pdf = new PDF('L','mm','A4');
     $pdf->AliasNbPages();
     $pdf->AddPage();
@@ -171,7 +156,6 @@ try {
         $pdf->SetFont('Arial','B',12);
         $pdf->Cell(0,10, toISO('Nenhum resultado encontrado para os filtros aplicados.'),0,1,'C');
     } else {
-        // Exibir filtros aplicados
         $pdf->SetFont('Arial','',8);
         $filtros_txt = 'Filtros: ';
         if (!empty($filtro_pregao)) $filtros_txt .= 'Pregão Específico | ';
@@ -192,12 +176,7 @@ try {
         $pdf->Cell(0, 5, toISO($filtros_txt), 0, 1, 'L');
         $pdf->Ln(4);
 
-        // ===================================================================
-        // LOOP POR PREGÃO
-        // ===================================================================
         foreach($pregoes as $pregao) {
-
-            // --- Buscar itens agrupados por lote -> item ---
             $sql_itens = "SELECT i.*, f.nome as fornecedor_nome
                           FROM itens_pregoes i
                           JOIN fornecedores f ON i.fornecedor_id = f.id
@@ -217,8 +196,6 @@ try {
             // --- Cabeçalho do Pregão ---
             $pdf->SetFont('Arial','B',10);
             $pdf->SetFillColor(230, 230, 230);
-
-            // Verificar quebra de página antes do cabeçalho do pregão
             if ($pdf->CheckPageBreak(30)) { }
 
             $pdf->Cell(40,7, 'Edital',1,0,'C',true);
@@ -242,19 +219,17 @@ try {
             $max_lines_preg = max($nb_orgao, $nb_edital, $nb_data, $nb_status, 1);
             $rowHeightPreg = $max_lines_preg * $lineHeightPreg;
 
-            $startX_preg = $pdf->GetX();
+            $startX_preg = 10;
             $startY_preg = $pdf->GetY();
 
             if ($pdf->CheckPageBreak($rowHeightPreg)) {
                 $startY_preg = $pdf->GetY();
-                $startX_preg = $pdf->GetX();
             }
 
-            $stylePreg = 'DF';
-            $pdf->Rect($startX_preg, $startY_preg, $w_edital, $rowHeightPreg, $stylePreg);
-            $pdf->Rect($startX_preg + $w_edital, $startY_preg, $w_orgao, $rowHeightPreg, $stylePreg);
-            $pdf->Rect($startX_preg + $w_edital + $w_orgao, $startY_preg, $w_data, $rowHeightPreg, $stylePreg);
-            $pdf->Rect($startX_preg + $w_edital + $w_orgao + $w_data, $startY_preg, $w_status, $rowHeightPreg, $stylePreg);
+            $pdf->Rect($startX_preg, $startY_preg, $w_edital, $rowHeightPreg, 'DF');
+            $pdf->Rect($startX_preg + $w_edital, $startY_preg, $w_orgao, $rowHeightPreg, 'DF');
+            $pdf->Rect($startX_preg + $w_edital + $w_orgao, $startY_preg, $w_data, $rowHeightPreg, 'DF');
+            $pdf->Rect($startX_preg + $w_edital + $w_orgao + $w_data, $startY_preg, $w_status, $rowHeightPreg, 'DF');
 
             $textStartY_preg = $startY_preg + ($rowHeightPreg - ($max_lines_preg * $lineHeightPreg)) / 2;
 
@@ -269,6 +244,69 @@ try {
 
             $pdf->SetXY($startX_preg, $startY_preg + $rowHeightPreg);
 
+            // --- Dados do Órgão Comprador (apenas para relatório específico) ---
+            if (!empty($filtro_pregao)) {
+                if ($pdf->CheckPageBreak(55)) { }
+
+                $pdf->SetFont('Arial','B',9);
+                $pdf->SetFillColor(230, 230, 230);
+                $pdf->Cell(277, 6, toISO('DADOS DO ÓRGÃO COMPRADOR'), 1, 1, 'C', true);
+                $pdf->SetFont('Arial','',8);
+                $pdf->SetFillColor(255, 255, 255);
+
+                // CNPJ
+                if (!empty($pregao['orgao_cnpj'])) {
+                    $pdf->Cell(40, 5, toISO('CNPJ:'), 'LR', 0, 'L', false);
+                    $pdf->Cell(237, 5, toISO($pregao['orgao_cnpj']), 'R', 1, 'L', false);
+                }
+                // Razão Social
+                $pdf->Cell(40, 5, toISO('Razão Social:'), 'LR', 0, 'L', false);
+                $pdf->Cell(237, 5, toISO($pregao['orgao_comprador']), 'R', 1, 'L', false);
+                // Nome Fantasia
+                if (!empty($pregao['orgao_nome_fantasia'])) {
+                    $pdf->Cell(40, 5, toISO('Nome Fantasia:'), 'LR', 0, 'L', false);
+                    $pdf->Cell(237, 5, toISO($pregao['orgao_nome_fantasia']), 'R', 1, 'L', false);
+                }
+                // Endereço
+                $endereco_linha = '';
+                if (!empty($pregao['orgao_endereco'])) $endereco_linha .= $pregao['orgao_endereco'];
+                if (!empty($pregao['orgao_bairro'])) $endereco_linha .= ($endereco_linha ? ' - ' : '') . $pregao['orgao_bairro'];
+                if (!empty($pregao['orgao_cidade'])) $endereco_linha .= ($endereco_linha ? ' - ' : '') . $pregao['orgao_cidade'];
+                if (!empty($pregao['orgao_estado'])) $endereco_linha .= ($endereco_linha ? '/' : '') . $pregao['orgao_estado'];
+                if (!empty($pregao['orgao_cep'])) $endereco_linha .= ($endereco_linha ? ' - CEP: ' : 'CEP: ') . $pregao['orgao_cep'];
+                if (!empty($endereco_linha)) {
+                    $pdf->Cell(40, 5, toISO('Endereço:'), 'LR', 0, 'L', false);
+                    $pdf->Cell(237, 5, toISO($endereco_linha), 'R', 1, 'L', false);
+                }
+                // Fecha bloco
+                $pdf->Cell(277, 1, '', 'T', 1, 'C', false);
+                $pdf->Ln(2);
+
+                // --- Dados da Licitação ---
+                $pdf->SetFont('Arial','B',9);
+                $pdf->SetFillColor(230, 230, 230);
+                $pdf->Cell(277, 6, toISO('DADOS DA LICITAÇÃO'), 1, 1, 'C', true);
+                $pdf->SetFont('Arial','',8);
+
+                if (!empty($pregao['numero_processo'])) {
+                    $pdf->Cell(40, 5, toISO('Processo:'), 'LR', 0, 'L', false);
+                    $pdf->Cell(237, 5, toISO($pregao['numero_processo']), 'R', 1, 'L', false);
+                }
+                if (!empty($pregao['modalidade'])) {
+                    $pdf->Cell(40, 5, toISO('Modalidade:'), 'LR', 0, 'L', false);
+                    $pdf->Cell(237, 5, toISO($pregao['modalidade']), 'R', 1, 'L', false);
+                }
+                $pdf->Cell(40, 5, toISO('Data Disputa:'), 'LR', 0, 'L', false);
+                $pdf->Cell(237, 5, toISO($data_sessao_str . (!empty($pregao['hora_sessao']) ? ' às ' . substr($pregao['hora_sessao'], 0, 5) : '')), 'R', 1, 'L', false);
+                if (!empty($pregao['objeto'])) {
+                    $pdf->Cell(40, 5, toISO('Objeto:'), 'LR', 0, 'L', false);
+                    $pdf->MultiCell(237, 5, toISO($pregao['objeto']), 'R', 'L', false);
+                }
+                // Fecha bloco
+                $pdf->Cell(277, 1, '', 'T', 1, 'C', false);
+                $pdf->Ln(2);
+            }
+
             if (empty($itens_agrupados)) {
                 $pdf->SetFont('Arial','I',9);
                 $pdf->Cell(0,7, toISO('Nenhum item encontrado para este pregão.'), 0, 1, 'C');
@@ -279,44 +317,48 @@ try {
             $pdf->Ln(3);
 
             // ===================================================================
-            // LOOP POR LOTE -> ITEM -> PARTICIPANTES (NOVO LAYOUT)
+            // LOOP POR LOTE -> ITEM -> PARTICIPANTES
             // ===================================================================
-            $w_full = 277; // Largura total útil da página landscape
-            $w_partic = 55; $w_fab = 47; $w_mod = 47; $w_unit = 33; $w_vtotal = 33; $w_st = 42;
+            $lineHeight = 5;
+
+            // Larguras originais + Tipo Cota no espaço vazio
+            // Original: 55+47+47+33+33+42 = 257
+            // Com Tipo Cota (20): 55+47+47+33+33+20+42 = 277
+            $w_partic = 55; $w_fab = 47; $w_mod = 47; $w_unit = 33; $w_vtotal = 33; $w_tipo = 20; $w_st = 42;
 
             foreach ($itens_agrupados as $lote_nome => $itens_do_lote) {
-
-                // --- Cabeçalho do Lote ---
                 if ($lote_nome !== 'SEM_LOTE') {
                     if ($pdf->CheckPageBreak(10)) { }
                     $pdf->SetFont('Arial','B',9);
                     $pdf->SetFillColor(200, 220, 255);
-                    $pdf->Cell($w_full, 6, toISO($lote_nome), 0, 1, 'C', true);
+                    $pdf->Cell(277, 6, toISO($lote_nome), 0, 1, 'C', true);
                     $pdf->Ln(2);
                 }
 
                 foreach ($itens_do_lote as $item_key => $participantes) {
                     $item_ref = $participantes[0];
 
-                    // --- Linha de Info do Item (Referência) ---
                     if ($pdf->CheckPageBreak(15)) { }
 
-                    $desc_curta = toISO($item_ref['descricao']);
-                    if (strlen($desc_curta) > 90) {
-                        $desc_curta = substr($desc_curta, 0, 87) . '...';
-                    }
+                    $descricao = toISO($item_ref['descricao']);
                     $qtd = $item_ref['quantidade'];
                     $vref = $item_ref['valor_unitario_ref'] ?? 0;
                     $vtotal_ref = $qtd * $vref;
+                    $linha_ref = toISO('Item ' . $item_ref['numero_item'] . ' | Qtd: ' . $qtd .
+                              ' | Ref: R$ ' . number_format($vref, 2, ',', '.') .
+                              ' | Total Ref: R$ ' . number_format($vtotal_ref, 2, ',', '.'));
 
                     $pdf->SetFont('Arial','B',9);
                     $pdf->SetFillColor(235, 245, 255);
-                    $pdf->Cell($w_full, 6,
-                        toISO('Item ' . $item_ref['numero_item'] . ' - ' . $desc_curta .
-                              ' | Qtd: ' . $qtd .
-                              ' | Ref: R$ ' . number_format($vref, 2, ',', '.') .
-                              ' | Total Ref: R$ ' . number_format($vtotal_ref, 2, ',', '.')),
-                        0, 1, 'L', true);
+                    $pdf->Cell(277, 6, $linha_ref, 0, 1, 'L', true);
+                    $pdf->Ln(1);
+
+                    // Descrição completa do item
+                    $pdf->SetFont('Arial','B',8);
+                    $pdf->SetFillColor(255, 255, 255);
+                    $pdf->Cell(277, 5, toISO('Descrição:'), 0, 1, 'L', false);
+                    $pdf->SetFont('Arial','',8);
+                    $pdf->MultiCell(277, 5, $descricao, 0, 'L', false);
                     $pdf->Ln(1);
 
                     // --- Cabeçalho da Tabela de Participantes ---
@@ -328,35 +370,21 @@ try {
                     $pdf->Cell($w_mod, 6, 'Modelo', 1, 0, 'C', true);
                     $pdf->Cell($w_unit, 6, 'Vlr. Unit.', 1, 0, 'C', true);
                     $pdf->Cell($w_vtotal, 6, 'Vlr. Total', 1, 0, 'C', true);
+                    $pdf->Cell($w_tipo, 6, 'Tipo Cota', 1, 0, 'C', true);
                     $pdf->Cell($w_st, 6, 'Status', 1, 1, 'C', true);
 
                     // --- Linhas dos Participantes ---
                     $pdf->SetFont('Arial','',8);
                     $itemFill = false;
-                    $lineHeight = 5;
 
                     foreach ($participantes as $item) {
-                        if ($pdf->CheckPageBreak(8)) {
-                            $pdf->SetFont('Arial','B',8);
-                            $pdf->SetFillColor(210, 210, 210);
-                            $pdf->Cell($w_partic, 6, 'Participante', 1, 0, 'C', true);
-                            $pdf->Cell($w_fab, 6, 'Fabricante', 1, 0, 'C', true);
-                            $pdf->Cell($w_mod, 6, 'Modelo', 1, 0, 'C', true);
-                            $pdf->Cell($w_unit, 6, 'Vlr. Unit.', 1, 0, 'C', true);
-                            $pdf->Cell($w_vtotal, 6, 'Vlr. Total', 1, 0, 'C', true);
-                            $pdf->Cell($w_st, 6, 'Status', 1, 1, 'C', true);
-                            $pdf->SetFont('Arial','',8);
-                        }
-
-                        $pdf->SetFillColor($itemFill ? 245 : 255, $itemFill ? 245 : 255, $itemFill ? 245 : 255);
-                        $itemFill = !$itemFill;
-
                         $txt_partic = toISO($item['fornecedor_nome']);
                         $txt_fab = toISO($item['fabricante']);
                         $txt_mod = toISO($item['modelo']);
                         $valor_unit_str = 'R$ ' . number_format($item['valor_unitario'], 2, ',', '.');
                         $valor_total = $item['quantidade'] * $item['valor_unitario'];
                         $valor_total_str = 'R$ ' . number_format($valor_total, 2, ',', '.');
+                        $txt_tipo = toISO($item['tipo_cota'] ?? '');
                         $txt_status = toISO($item['status_item'] ?? 'Classificada');
 
                         $nb_partic = $pdf->GetNbLines($w_partic, $txt_partic);
@@ -364,15 +392,18 @@ try {
                         $nb_mod = $pdf->GetNbLines($w_mod, $txt_mod);
                         $nb_unit = $pdf->GetNbLines($w_unit, $valor_unit_str);
                         $nb_vtotal = $pdf->GetNbLines($w_vtotal, $valor_total_str);
+                        $nb_tipo = $pdf->GetNbLines($w_tipo, $txt_tipo);
                         $nb_st = $pdf->GetNbLines($w_st, $txt_status);
 
-                        $max_lines = max($nb_partic, $nb_fab, $nb_mod, $nb_unit, $nb_vtotal, $nb_st, 1);
+                        $max_lines = max($nb_partic, $nb_fab, $nb_mod, $nb_unit, $nb_vtotal, $nb_tipo, $nb_st, 1);
                         $rowHeight = $max_lines * $lineHeight;
 
-                        $startX = $pdf->GetX();
+                        $startX = 10;
                         $startY = $pdf->GetY();
 
                         if ($pdf->CheckPageBreak($rowHeight)) {
+                            $startY = $pdf->GetY();
+                            // Reimprime cabeçalho
                             $pdf->SetFont('Arial','B',8);
                             $pdf->SetFillColor(210, 210, 210);
                             $pdf->Cell($w_partic, 6, 'Participante', 1, 0, 'C', true);
@@ -380,10 +411,10 @@ try {
                             $pdf->Cell($w_mod, 6, 'Modelo', 1, 0, 'C', true);
                             $pdf->Cell($w_unit, 6, 'Vlr. Unit.', 1, 0, 'C', true);
                             $pdf->Cell($w_vtotal, 6, 'Vlr. Total', 1, 0, 'C', true);
+                            $pdf->Cell($w_tipo, 6, 'Tipo Cota', 1, 0, 'C', true);
                             $pdf->Cell($w_st, 6, 'Status', 1, 1, 'C', true);
                             $pdf->SetFont('Arial','',8);
                             $startY = $pdf->GetY();
-                            $startX = $pdf->GetX();
                         }
 
                         $style = $itemFill ? 'DF' : 'D';
@@ -392,34 +423,26 @@ try {
                         $pdf->Rect($startX + $w_partic + $w_fab, $startY, $w_mod, $rowHeight, $style);
                         $pdf->Rect($startX + $w_partic + $w_fab + $w_mod, $startY, $w_unit, $rowHeight, $style);
                         $pdf->Rect($startX + $w_partic + $w_fab + $w_mod + $w_unit, $startY, $w_vtotal, $rowHeight, $style);
-                        $pdf->Rect($startX + $w_partic + $w_fab + $w_mod + $w_unit + $w_vtotal, $startY, $w_st, $rowHeight, $style);
+                        $pdf->Rect($startX + $w_partic + $w_fab + $w_mod + $w_unit + $w_vtotal, $startY, $w_tipo, $rowHeight, $style);
+                        $pdf->Rect($startX + $w_partic + $w_fab + $w_mod + $w_unit + $w_vtotal + $w_tipo, $startY, $w_st, $rowHeight, $style);
 
-                        // Desenhar textos
-                        $th = $nb_partic * $lineHeight;
-                        $pdf->SetXY($startX, $startY + ($rowHeight - $th) / 2);
+                        $pdf->SetXY($startX, $startY);
                         $pdf->MultiCell($w_partic, $lineHeight, $txt_partic, 0, 'C', false);
-
-                        $th = $nb_fab * $lineHeight;
-                        $pdf->SetXY($startX + $w_partic, $startY + ($rowHeight - $th) / 2);
+                        $pdf->SetXY($startX + $w_partic, $startY);
                         $pdf->MultiCell($w_fab, $lineHeight, $txt_fab, 0, 'C', false);
-
-                        $th = $nb_mod * $lineHeight;
-                        $pdf->SetXY($startX + $w_partic + $w_fab, $startY + ($rowHeight - $th) / 2);
+                        $pdf->SetXY($startX + $w_partic + $w_fab, $startY);
                         $pdf->MultiCell($w_mod, $lineHeight, $txt_mod, 0, 'C', false);
-
-                        $th = $nb_unit * $lineHeight;
-                        $pdf->SetXY($startX + $w_partic + $w_fab + $w_mod, $startY + ($rowHeight - $th) / 2);
+                        $pdf->SetXY($startX + $w_partic + $w_fab + $w_mod, $startY);
                         $pdf->MultiCell($w_unit, $lineHeight, $valor_unit_str, 0, 'C', false);
-
-                        $th = $nb_vtotal * $lineHeight;
-                        $pdf->SetXY($startX + $w_partic + $w_fab + $w_mod + $w_unit, $startY + ($rowHeight - $th) / 2);
+                        $pdf->SetXY($startX + $w_partic + $w_fab + $w_mod + $w_unit, $startY);
                         $pdf->MultiCell($w_vtotal, $lineHeight, $valor_total_str, 0, 'C', false);
-
-                        $th = $nb_st * $lineHeight;
-                        $pdf->SetXY($startX + $w_partic + $w_fab + $w_mod + $w_unit + $w_vtotal, $startY + ($rowHeight - $th) / 2);
+                        $pdf->SetXY($startX + $w_partic + $w_fab + $w_mod + $w_unit + $w_vtotal, $startY);
+                        $pdf->MultiCell($w_tipo, $lineHeight, $txt_tipo, 0, 'C', false);
+                        $pdf->SetXY($startX + $w_partic + $w_fab + $w_mod + $w_unit + $w_vtotal + $w_tipo, $startY);
                         $pdf->MultiCell($w_st, $lineHeight, $txt_status, 0, 'C', false);
 
                         $pdf->SetXY($startX, $startY + $rowHeight);
+                        $itemFill = !$itemFill;
                     }
 
                     // --- Classificação ---
@@ -438,7 +461,7 @@ try {
                         $classificacao .= $pos . 'º ' . $p['fornecedor_nome'] . ' (R$ ' . number_format($p['valor_unitario'], 2, ',', '.') . ')';
                         $pos++;
                     }
-                    $pdf->Cell($w_full, 5, toISO($classificacao), 0, 1, 'L', true);
+                    $pdf->MultiCell(277, 5, toISO($classificacao), 0, 'L', true);
                     $pdf->Ln(3);
                 }
             }
