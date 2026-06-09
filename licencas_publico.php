@@ -7,7 +7,12 @@
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
-require_once 'auth.php';
+// Token público simples
+$token_secreto = 'public_view_xyz987';
+if (!isset($_GET['token']) || $_GET['token'] !== $token_secreto) {
+    die("Acesso restrito.");
+}
+
 require_once 'Database.php';
 
 $mensagem = '';
@@ -17,8 +22,7 @@ try {
     $db = new Database();
     $pdo = $db->connect();
 
-    $current_user_id = $_SESSION['user_id'];
-    $is_admin = isAdmin();
+    $is_admin = false;
 
     $upload_dir = __DIR__ . '/uploads/licencas/';
     if (!is_dir($upload_dir)) {
@@ -26,90 +30,6 @@ try {
     }
 
     $filtro_fornecedor = isset($_GET['fornecedor']) ? intval($_GET['fornecedor']) : 0;
-
-    if ($_SERVER["REQUEST_METHOD"] == "POST" && $is_admin) {
-
-        if (isset($_POST['submit_licenca'])) {
-            $fornecedor_id = !empty($_POST['fornecedor_id']) ? intval($_POST['fornecedor_id']) : null;
-            $titulo = trim($_POST['titulo'] ?? '');
-            $data_vencimento = !empty($_POST['data_vencimento']) ? $_POST['data_vencimento'] : null;
-            $sem_validade = isset($_POST['sem_validade']) ? 1 : 0;
-
-            if ($sem_validade) {
-                $data_vencimento = null;
-            }
-
-            if (!empty($_FILES['arquivo']['name']) && $_FILES['arquivo']['error'] === UPLOAD_ERR_OK) {
-                $ext = pathinfo($_FILES['arquivo']['name'], PATHINFO_EXTENSION);
-                $nome_arquivo = 'licenca_' . time() . '_' . uniqid() . '.' . $ext;
-                $destino = $upload_dir . $nome_arquivo;
-                if (move_uploaded_file($_FILES['arquivo']['tmp_name'], $destino)) {
-                    $arquivo_path = 'uploads/licencas/' . $nome_arquivo;
-                }
-            }
-
-            if (!empty($titulo) && $fornecedor_id) {
-                $sql = "INSERT INTO licencas_certidoes (fornecedor_id, titulo, arquivo_path, data_vencimento, sem_validade) VALUES (?, ?, ?, ?, ?)";
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute([$fornecedor_id, $titulo, $arquivo_path, $data_vencimento, $sem_validade]);
-                $mensagem = "Documento cadastrado com sucesso!";
-            } else {
-                $erro = "Preencha o titulo e selecione a empresa.";
-            }
-        }
-
-        if (isset($_POST['excluir_id'])) {
-            $id = intval($_POST['excluir_id']);
-            $stmt = $pdo->prepare("SELECT arquivo_path FROM licencas_certidoes WHERE id = ?");
-            $stmt->execute([$id]);
-            $doc = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($doc && !empty($doc['arquivo_path'])) {
-                $caminho = __DIR__ . '/' . $doc['arquivo_path'];
-                if (file_exists($caminho)) {
-                    unlink($caminho);
-                }
-            }
-            $pdo->prepare("DELETE FROM licencas_certidoes WHERE id = ?")->execute([$id]);
-            $mensagem = "Documento excluido com sucesso!";
-        }
-
-        if (isset($_POST['submit_editar'])) {
-            $id = intval($_POST['edit_id']);
-            $fornecedor_id = !empty($_POST['fornecedor_id']) ? intval($_POST['fornecedor_id']) : null;
-            $titulo = trim($_POST['titulo'] ?? '');
-            $data_vencimento = !empty($_POST['data_vencimento']) ? $_POST['data_vencimento'] : null;
-            $sem_validade = isset($_POST['sem_validade']) ? 1 : 0;
-
-            if ($sem_validade) {
-                $data_vencimento = null;
-            }
-
-            $sql = "UPDATE licencas_certidoes SET fornecedor_id = ?, titulo = ?, data_vencimento = ?, sem_validade = ?, notificado = 0, notificado_vencido = 0 WHERE id = ?";
-            $pdo->prepare($sql)->execute([$fornecedor_id, $titulo, $data_vencimento, $sem_validade, $id]);
-
-            if (!empty($_FILES['arquivo']['name']) && $_FILES['arquivo']['error'] === UPLOAD_ERR_OK) {
-                $stmt = $pdo->prepare("SELECT arquivo_path FROM licencas_certidoes WHERE id = ?");
-                $stmt->execute([$id]);
-                $old = $stmt->fetch(PDO::FETCH_ASSOC);
-                if ($old && !empty($old['arquivo_path'])) {
-                    $caminho = __DIR__ . '/' . $old['arquivo_path'];
-                    if (file_exists($caminho)) {
-                        unlink($caminho);
-                    }
-                }
-                $ext = pathinfo($_FILES['arquivo']['name'], PATHINFO_EXTENSION);
-                $nome_arquivo = 'licenca_' . time() . '_' . uniqid() . '.' . $ext;
-                $destino = $upload_dir . $nome_arquivo;
-                if (move_uploaded_file($_FILES['arquivo']['tmp_name'], $destino)) {
-                    $pdo->prepare("UPDATE licencas_certidoes SET arquivo_path = ? WHERE id = ?")->execute(['uploads/licencas/' . $nome_arquivo, $id]);
-                }
-            }
-            $mensagem = "Documento atualizado com sucesso!";
-        }
-
-        header("Location: licencas.php?fornecedor=" . $filtro_fornecedor);
-        exit();
-    }
 
     $fornecedores = $pdo->query("SELECT id, nome, nome_fantasia, cnpj FROM fornecedores ORDER BY nome ASC")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -220,11 +140,7 @@ try {
 
 <body class="bg-[#d9e3ec] p-4 sm:p-8">
     <div class="container mx-auto">
-        <?php if (!isset($_GET['print'])): ?>
-            <div class="no-print">
-                <?php include 'header.php'; ?>
-            </div>
-        <?php endif; ?>
+        <!-- Sem header na página pública -->
 
         <div class="bg-white p-6 rounded-lg shadow-lg mb-6 <?php echo isset($_GET['print']) ? 'no-print' : ''; ?>">
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -235,18 +151,10 @@ try {
                     <p class="text-gray-500 mt-1">Gerencie documentos por empresa</p>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="copiarLinkPublico()" class="btn btn-detalhe no-print">
-                        <i class="fas fa-share-alt mr-2"></i> Compartilhar Link
-                    </button>
                     <button onclick="abrirModalImpressao()" class="btn btn-secondary no-print">
                         <i class="fas fa-print mr-2"></i> Imprimir
                     </button>
-                    <button onclick="abrirModal()" class="btn btn-primary no-print" <?php echo !$is_admin ? 'disabled title="Apenas administradores"' : ''; ?>>
-                        <i class="fas fa-plus mr-2"></i> Nova Licenca/Certidao
-                    </button>
-                    <a href="dashboard.php" class="btn btn-secondary no-print">
-                        <i class="fas fa-arrow-left mr-2"></i> Voltar
-                    </a>
+                    <!-- Apenas visualizar -->
                 </div>
             </div>
 
@@ -306,7 +214,6 @@ try {
             <div class="bg-white p-10 rounded-lg shadow text-center text-gray-500 <?php echo isset($_GET['print']) ? 'hidden' : ''; ?>">
                 <i class="fas fa-folder-open text-4xl mb-4 text-gray-300"></i>
                 <p class="text-lg">Nenhum documento cadastrado.</p>
-                <p class="text-sm mt-2">Clique em "Nova Licenca/Certidao" para adicionar.</p>
             </div>
         <?php else: ?>
             <?php foreach ($agrupadas as $grupo): ?>
@@ -406,60 +313,6 @@ try {
         <?php endif; ?>
     </div>
 
-    <div id="modal-licenca"
-        class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-lg mx-4">
-            <h3 id="modal-titulo" class="text-xl font-bold mb-4">Nova Licenca/Certidao</h3>
-            <form method="POST" enctype="multipart/form-data" id="form-licenca">
-                <input type="hidden" name="edit_id" id="edit_id" value="">
-
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Empresa *</label>
-                    <select name="fornecedor_id" id="fornecedor_id_select" required
-                        class="w-full px-3 py-2 border rounded-lg bg-white">
-                        <option value="">Selecione a empresa</option>
-                        <?php foreach ($fornecedores as $f): ?>
-                            <option value="<?php echo $f['id']; ?>"><?php echo htmlspecialchars($f['nome']); ?>
-                                <?php echo !empty($f['cnpj']) ? ' (' . htmlspecialchars($f['cnpj']) . ')' : ''; ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Titulo do Documento *</label>
-                    <input type="text" name="titulo" id="titulo_input" required
-                        class="w-full px-3 py-2 border rounded-lg" placeholder="Ex: Alvara de Localizacao, CNDT...">
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Data de Vencimento</label>
-                    <input type="date" name="data_vencimento" id="data_vencimento_input"
-                        class="w-full px-3 py-2 border rounded-lg">
-                </div>
-
-                <div class="mb-4">
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" name="sem_validade" id="sem_validade_check" value="1" onchange="toggleDataVencimento()"
-                            class="w-4 h-4 text-blue-600 border-gray-300 rounded">
-                        <span class="text-sm font-medium text-gray-700">Nao tem validade (prazo indeterminado)</span>
-                    </label>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Arquivo (PDF, imagem)</label>
-                    <input type="file" name="arquivo" id="arquivo_input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                        class="w-full px-3 py-2 border rounded-lg bg-white">
-                    <p id="arquivo_atual" class="text-xs text-gray-400 mt-1 hidden"></p>
-                </div>
-
-                <div class="flex justify-end gap-3 mt-6">
-                    <button type="button" onclick="fecharModal()" class="btn btn-secondary">Cancelar</button>
-                    <button type="submit" name="submit_licenca" id="btn_submit" class="btn btn-primary">Salvar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <div id="modal-impressao" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 hidden no-print">
         <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md mx-4">
             <h3 class="text-xl font-bold mb-4">Imprimir Licenças & Certidões</h3>
@@ -483,64 +336,7 @@ try {
         </div>
     </div>
 
-    <form id="form-excluir" method="POST" class="hidden">
-        <input type="hidden" name="excluir_id" id="excluir_id_input">
-    </form>
-
     <script>
-        function toggleDataVencimento() {
-            var checked = document.getElementById('sem_validade_check').checked;
-            document.getElementById('data_vencimento_input').disabled = checked;
-            if (checked) {
-                document.getElementById('data_vencimento_input').value = '';
-            }
-        }
-
-        function abrirModal() {
-            document.getElementById('form-licenca').reset();
-            document.getElementById('edit_id').value = '';
-            document.getElementById('modal-titulo').textContent = 'Nova Licenca/Certidao';
-            document.getElementById('btn_submit').name = 'submit_licenca';
-            document.getElementById('btn_submit').textContent = 'Salvar';
-            document.getElementById('arquivo_atual').classList.add('hidden');
-            document.getElementById('fornecedor_id_select').value = '<?php echo $filtro_fornecedor; ?>';
-            document.getElementById('sem_validade_check').checked = false;
-            document.getElementById('data_vencimento_input').disabled = false;
-            document.getElementById('modal-licenca').classList.remove('hidden');
-        }
-
-        function abrirEdicao(id, titulo, vencimento, fornecedorId, semValidade) {
-            document.getElementById('edit_id').value = id;
-            document.getElementById('titulo_input').value = titulo;
-            document.getElementById('data_vencimento_input').value = vencimento;
-            document.getElementById('fornecedor_id_select').value = fornecedorId;
-            document.getElementById('modal-titulo').textContent = 'Editar Licenca/Certidao';
-            document.getElementById('btn_submit').name = 'submit_editar';
-            document.getElementById('btn_submit').textContent = 'Atualizar';
-            document.getElementById('form-licenca').setAttribute('action', 'licencas.php?fornecedor=<?php echo $filtro_fornecedor; ?>');
-
-            var semVal = (semValidade == 1);
-            document.getElementById('sem_validade_check').checked = semVal;
-            document.getElementById('data_vencimento_input').disabled = semVal;
-            if (semVal) {
-                document.getElementById('data_vencimento_input').value = '';
-            }
-
-            document.getElementById('modal-licenca').classList.remove('hidden');
-        }
-
-        function fecharModal() {
-            document.getElementById('modal-licenca').classList.add('hidden');
-            document.getElementById('form-licenca').setAttribute('action', '');
-        }
-
-        function confirmarExclusao(id) {
-            if (confirm('Tem certeza que deseja excluir este documento?')) {
-                document.getElementById('excluir_id_input').value = id;
-                document.getElementById('form-excluir').submit();
-            }
-        }
-
         function abrirModalImpressao() {
             document.getElementById('modal-impressao').classList.remove('hidden');
         }
@@ -549,26 +345,13 @@ try {
             document.getElementById('modal-impressao').classList.add('hidden');
         }
 
-        function copiarLinkPublico() {
-            var publicUrl = window.location.origin + window.location.pathname.replace('licencas.php', 'licencas_publico.php') + '?token=public_view_xyz987';
-            navigator.clipboard.writeText(publicUrl).then(function() {
-                alert('Link de compartilhamento público copiado para a área de transferência!');
-            }, function(err) {
-                alert('Erro ao copiar o link: ' + err);
-            });
-        }
-
         function imprimirLicencas() {
             var forn = document.getElementById('print_fornecedor').value;
-            window.open('licencas.php?fornecedor=' + forn + '&print=1', '_blank');
+            window.open('licencas_publico.php?token=public_view_xyz987&fornecedor=' + forn + '&print=1', '_blank');
             fecharModalImpressao();
         }
 
-        document.getElementById('modal-licenca').addEventListener('click', function (e) {
-            if (e.target === this) {
-                fecharModal();
-            }
-        });
+
 
         document.getElementById('modal-impressao').addEventListener('click', function (e) {
             if (e.target === this) {
