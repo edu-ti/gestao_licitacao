@@ -321,8 +321,13 @@ try {
                     <!-- Paginação -->
                     <div class="mt-6 flex justify-center">
                         <nav class="flex items-center space-x-1">
-                            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
-                                <a href="?page=<?php echo $i; ?>&<?php echo http_build_query($_GET, '', '&'); ?>" class="pagination-link <?php echo $i == $page ? 'active' : ''; ?>"><?php echo $i; ?></a>
+                            <?php 
+                            $queryParams = $_GET;
+                            unset($queryParams['page']);
+                            $queryString = http_build_query($queryParams);
+                            for ($i = 1; $i <= $total_pages; $i++): 
+                            ?>
+                                <a href="?page=<?php echo $i; ?><?php echo !empty($queryString) ? '&' . $queryString : ''; ?>" class="pagination-link <?php echo $i == $page ? 'active' : ''; ?>"><?php echo $i; ?></a>
                             <?php endfor; ?>
                         </nav>
                     </div>
